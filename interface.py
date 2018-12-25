@@ -185,9 +185,18 @@ class SplitLayout(Layout):
 
       for i,w in enumerate(args):
          if i % 2 == 0:
+            if not isinstance(w, Widget):
+               raise Exception("SplitLayout expected widget on index {}".format(i))
             self.widgets.append(w)
          else:
+            if not isinstance(w, float) and not isinstance(w, int):
+               raise Exception("SplitLayout expected float on index {}".format(i))
             self.ratio.append(w)
+
+      if len(self.widgets) != len(self.ratio):
+         raise Exception("SplitLayout needs one ratio per widget")
+      if len([x for x in self.ratio if x == 0.0]) != 1:
+         raise Exception("SplitLayout needs exactly one floating zero as ratio")
 
    #pylint: disable=protected-access
    def _init(self, x, y, w, h, manager, parent):
@@ -200,19 +209,29 @@ class SplitLayout(Layout):
       )
 
    def _get_dimensions(self):
-      res = []
-      previousx = self.x
-      dimension = self.w
+      floats = [f for f in self.ratio if isinstance(f, float)]
+      ints = [i for i in self.ratio if isinstance(i, int)]
+      constantspace = sum(ints)
       if self.alignment == self.Alignment.VERTICAL:
          previousx = self.y
-         dimension = self.h
+         dimension = self.h - constantspace
+      else:
+         previousx = self.x
+         dimension = self.w - constantspace
 
+      widths = [int(dimension * f) for f in floats]
+      widths[widths.index(0.0)] = dimension - sum(widths)
+
+      res = []
       for r in self.ratio:
-         width = int(dimension * r)
-         res.append((previousx, self.y, width, self.h))
-         previousx += width
-      res.append((previousx, self.y, dimension - previousx, self.h))
+         if isinstance(r, int):
+            w = ints.pop(0)
+         else:
+            w = widths.pop(0)
+         res.append((previousx, self.y, w, self.h))
+         previousx += w
 
+      # transform if vertical
       if self.alignment == self.Alignment.VERTICAL:
          res = [(self.x, x, self.w, w) for (x, _, w, _) in res]
 

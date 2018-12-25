@@ -1,3 +1,5 @@
+#!/bin/python
+
 import interface
 import database
 
@@ -51,8 +53,8 @@ def main():
          interface.SplitLayout(
             "mainlayout",
             interface.SplitLayout.Alignment.HORIZONTAL,
-            SelectorWidget("MAIN"), 0.3,
-            interface.BorderWrapperLayout("rb", TextWidget("img"))
+            SelectorWidget("MAIN"), 10,
+            interface.BorderWrapperLayout("rb", TextWidget("img")), 0.0
          ),
          TextWidget("popup_inner"),
          50,
