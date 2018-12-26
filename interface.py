@@ -10,6 +10,7 @@ import struct
 import sys
 import fcntl
 import termios
+from time import sleep
 
 def truncateStr(s, w):
    if len(s) > w:
@@ -123,6 +124,19 @@ class Widget():
       self.is_focused = True
       self.touch()
 
+   def _hide(self):
+      if self.panel:
+         self.panel.hide()
+
+   def _show(self):
+      if self.panel:
+         self.panel.show()
+
+   def _is_hidden(self):
+      if self.panel:
+         return self.panel.hidden()
+      raise Exception("this widget doesn't have a panel")
+
 class Layout(Widget):
    def __init__(self, name):
       super().__init__(name)
@@ -130,6 +144,23 @@ class Layout(Widget):
       self.focused = 0
       self.is_layout = True
       self.focusable = False
+
+   #pylint: disable=protected-access
+   def _show(self):
+      for w in self.widgets:
+         w._show()
+
+   #pylint: disable=protected-access
+   def _hide(self):
+      for w in self.widgets:
+         w._hide()
+
+   #pylint: disable=protected-access
+   def _is_hidden(self):
+      for w in self.widgets:
+         if not w._is_hidden():
+            return False
+      return True
 
    #pylint: disable=protected-access
    def _focus_child(self, child):
@@ -375,7 +406,7 @@ class ImageWidget(Widget):
    def _init(self, *args):
       super()._init(*args)
       self.cw, self.ch = self._get_font_dimensions()
-      self.w3m = S.Popen([self.w3mpath], stdin=S.PIPE, universal_newlines=True)
+      self.w3m = S.Popen([self.w3mpath], stdin=S.PIPE, stdout=S.PIPE, universal_newlines=True)
 
    def set_image(self, path):
       self.path = path
@@ -426,46 +457,39 @@ class ImageWidget(Widget):
       inp = '0;1;{};{};{};{};;;;;{}\n4;\n3;\n'.format(
          self.x * self.cw,
          self.y * self.ch,
-         dw,
+         dw - 3,
          dh,
          self.path
       )
+      sleep(0.02)
       self.w3m.stdin.write(inp)
       self.w3m.stdin.flush()
+      self.w3m.stdout.readline()
 
 class PopupLayout(Layout):
-   def __init__(self, name, base, popup, maxw, maxh):
+   def __init__(self, name, base, popup):
       super().__init__(name)
       self.widgets = [base, popup]
-      self.maxw = maxw
-      self.maxh = maxh
 
    #pylint: disable=protected-access
    def _init(self, x, y, w, h, manager, parent):
       super()._init(x, y, w, h, manager, parent)
       self.widgets[0]._init(x, y, w, h, manager, self)
-      self.widgets[1]._init(*self._get_popup_dim(), manager, self)
+      self.widgets[1]._init(x, y, w, h, manager, self)
       self.hide_popup()
 
-   def _get_popup_dim(self):
-      pw = min(self.w, self.maxw)
-      ph = min(self.h, self.maxh)
-      px = int((self.w - pw) / 2)
-      py = int((self.h - ph) / 2)
-      return (px, py, pw, ph)
-
    def show_popup(self):
-      self.widgets[1].panel.show()
-      self.widgets[1].panel.top()
+      self.widgets[1]._show()
+      # self.widgets[1]._top()
       self.widgets[1].touch()
       self.change_focus(1)
 
    def hide_popup(self):
-      self.widgets[1].panel.hide()
+      self.widgets[1]._hide()
       self.change_focus(0)
 
    def is_popupped(self):
-      return not self.widgets[1].panel.hidden()
+      return not self.widgets[1]._is_hidden()
 
    def toggle(self):
       if not self.is_popupped():
@@ -478,7 +502,7 @@ class PopupLayout(Layout):
       # FIXME: self.resize is called before the children are updated, might be a problem
       super()._resize(stdx, stdy, stdw, stdh)
       self.widgets[0]._resize(stdx, stdy, stdw, stdh)
-      self.widgets[1]._resize(*self._get_popup_dim())
+      self.widgets[1]._resize(stdx, stdy, stdw, stdh)
 
 class WrapperLayout(Layout):
    def __init__(self, name, widget):
@@ -494,11 +518,42 @@ class WrapperLayout(Layout):
       super()._resize(stdx, stdy, stdw, stdh)
       self.widgets[0]._resize(stdx, stdy, stdw, stdh)
 
+class ConstraintLayout(Layout):
+   def __init__(self, widget, maxw=None, maxh=None):
+      super().__init__("constraint_{}".format(widget.name))
+      self.widgets.append(widget)
+      self.maxw = maxw
+      self.maxh = maxh
+
+   def _get_size(self):
+      pw = min(self.w, self.maxw) if self.maxw else self.w
+      ph = min(self.h, self.maxh) if self.maxh else self.h
+      px = self.x + int((self.w - pw) / 2)
+      py = self.y + int((self.h - ph) / 2)
+      return (px, py, pw, ph)
+
+   #pylint: disable=protected-access
+   def _init(self, x, y, w, h, manager, parent):
+      super()._init(x, y, w, h, manager, parent)
+      self.widgets[0]._init(*self._get_size(), manager, self)
+
+   def _resize(self, stdx, stdy, stdw, stdh):
+      super()._resize(stdx, stdy, stdw, stdh)
+      self.widgets[0]._resize(*self._get_size())
+
 class BorderWrapperLayout(Layout):
    def __init__(self, edges, widget):
       super().__init__("border_{}".format(widget.name))
       self.widgets.append(widget)
       self.edges = edges
+
+   def _show(self):
+      self.panel.show()
+      super()._show()
+
+   def _hide(self):
+      self.panel.hide()
+      super()._hide()
 
    def _get_child_size(self):
       x = self.x
