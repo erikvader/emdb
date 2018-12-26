@@ -24,6 +24,27 @@ def ice(f, *args):
    except _curses.error:
       pass
 
+def draw_formatted(win, x, y, s):
+   _,w = win.getmaxyx()
+   escon = False
+   attr = 0
+   for c in s:
+      if x > w:
+         break
+      if escon:
+         escon = False
+         if c == '0':
+            attr = 0
+         elif c.isdigit():
+            attr = curses.color_pair(int(c))
+         continue
+      elif c == '\\':
+         escon = True
+         continue
+      ice(win.addch, y, x, c)
+      ice(win.chgat, y, x, 1, attr)
+      x += 1
+
 class Widget():
    def __init__(self, name):
       self.x = 0
@@ -107,6 +128,7 @@ class Widget():
       self.is_focused = True
       if self.parent:
          self.parent._focus_child(self)
+      self.manager.current_focus = self
       self.onfocus()
 
    def onfocus(self):
@@ -614,6 +636,11 @@ class Manager():
       self.layout = layout
       self.widgets = {}
       self.delayed_draw_queue = []
+      self.global_hook = []
+      self.current_focus = None
+
+   def on_any_event(self, f):
+      self.global_hook.append(f)
 
    def draw_delayed(self, w):
       self.delayed_draw_queue.append(w)
@@ -647,6 +674,10 @@ class Manager():
       self.get_widget("MAIN").focus()
 
       while self.running:
+
+         for f in self.global_hook:
+            f(self)
+
          self.layout._draw()
 
          cp.update_panels()
