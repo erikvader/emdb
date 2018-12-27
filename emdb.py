@@ -21,6 +21,8 @@ def move_file (f, src, dest):
    shutil.move(s, d)
    return new_f
 
+# commands from main widget ###################################################
+
 def start_inspection(man):
    allCandidates = os.listdir(man["bd"])
    aclen = len(allCandidates)
@@ -36,7 +38,36 @@ def start_inspection(man):
    # import subprocess as P
    # P.run(["mpv", os.path.join(man["id"], randChoice)], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
 
-   man.get_widget("modifyMoviePopup").show_popup()
+   stars = man.get_widget("modifyMovieStars")
+   stars.focus()
+   stars.set_list(man["db"].get_stars())
+   tags = man.get_widget("modifyMovieTags")
+   tags.set_list(man["db"].get_tags())
+   man.get_widget("modifyTitle").set_title(randChoice)
+
+def add_star(man):
+   def err(inp):
+      inp.manager.get_widget("MAIN").focus()
+   def succ(inp):
+      inp.manager.get_widget("MAIN").focus()
+      val = "".join(inp.value)
+      if val:
+         inp.manager["db"].add_star(val)
+
+   man.get_widget("inputTitle").set_title("Add new star")
+   man.get_widget("input").new_session(on_error=err, on_success=succ)
+
+def add_tag(man):
+   def err(inp):
+      inp.manager.get_widget("MAIN").focus()
+   def succ(inp):
+      inp.manager.get_widget("MAIN").focus()
+      val = "".join(inp.value)
+      if val:
+         inp.manager["db"].add_tag(val)
+
+   man.get_widget("inputTitle").set_title("Add new tag")
+   man.get_widget("input").new_session(on_error=err, on_success=succ)
 
 # widgets #####################################################################
 class StatsWidget(interface.Widget):
@@ -87,13 +118,22 @@ class TitleWidget(interface.Widget):
       super().__init__(name)
       self.value = "title"
 
+   def set_title(self, title):
+      self.value = title
+      self.touch()
+
    def draw(self, win):
       if self.resized:
          win.erase()
-      win.addstr(0, (self.w - len(self.value)) // 2, self.value)
+      x = max(0, (self.w - len(self.value)) // 2)
+      win.addstr(0, x, self.value)
 
 class ModifyStarsWidget(interface.ListWidget):
-   pass
+   def key_event(self, key):
+      if super().key_event(key):
+         return True
+
+      # if key == 
 
 class ModifyTagsWidget(interface.ListWidget):
    pass
@@ -112,7 +152,13 @@ class GlobalBindings(interface.WrapperLayout):
 class SelectorWidget(interface.FancyListWidget):
    def __init__(self, name):
       super().__init__(name)
-      self.key_help = {"j/<down>": "move down", "k/<up>": "move up", "i": "inspect new"}
+      self.key_help = {
+         "j/<down>": "move down",
+         "k/<up>": "move up",
+         "i": "inspect new",
+         "p": "add star",
+         "t": "add tag"
+      }
 
    def init(self):
       self.set_list(self.manager["db"].get_movies())
@@ -126,6 +172,10 @@ class SelectorWidget(interface.FancyListWidget):
          # self.manager.get_widget("img").touch()
       elif key == ord('i'):
          start_inspection(self.manager)
+      elif key == ord('p'):
+         add_star(self.manager)
+      elif key == ord('t'):
+         add_tag(self.manager)
       else:
          return False
       return True
@@ -136,7 +186,30 @@ class PreviewWidget(interface.ImageWidget):
       # self.set_image("/home/erik/Pictures/PFUDOR_2.jpg")
 
 class MyInputWidget(interface.InputWidget):
-   pass
+   def __init__(self, name):
+      super().__init__(name)
+      self.on_success = lambda s: None
+      self.on_error = lambda s: None
+
+   def new_session(self, on_success=None, on_error=None):
+      self.on_success = on_success if on_success else lambda s: None
+      self.on_error = on_error if on_error else lambda s: None
+      self.value = []
+      self.cursor = 0
+      self._offset = 0
+      self.focus()
+
+   def key_event(self, key):
+      if super().key_event(key):
+         return True
+
+      if key == interface.ca.NL:
+         self.on_success(self)
+      elif key == interface.ca.ESC:
+         self.on_error(self)
+      else:
+         return False
+      return True
 
 # globals #####################################################################
 
@@ -231,4 +304,5 @@ def start(dbfile, archivedir, bufferdir, inspectdir):
    man["bd"] = bufferdir
 
    man.start()
+   man["db"].close()
 

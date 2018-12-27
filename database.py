@@ -219,20 +219,20 @@ class Database:
    def get_stars_for(self, mid):
       with self._cursor() as c:
          stars = self._get_stars_for(c, mid)
-         return [self._get_star_info(c, pid) for pid in stars]
+         return [Star(self._get_star_info(c, pid)) for pid in stars]
 
    def get_tags_for(self, mid, derived=True):
       with self._cursor() as c:
          tags = self._get_tags_for(c, mid, derived)
-         return [self._get_tag_info(c, tid) for tid in tags]
+         return [Tag(self._get_tag_info(c, tid)) for tid in tags]
 
    def get_tags(self):
       with self._cursor() as c:
-         return [x["name"] for x in self._get_all_from(c, "Tag")]
+         return [Tag(x) for x in self._get_all_from(c, "Tag")]
 
    def get_stars(self):
       with self._cursor() as c:
-         return [x["name"] for x in self._get_all_from(c, "Pornstar")]
+         return [Star(x) for x in self._get_all_from(c, "Pornstar")]
 
 #pylint: disable=protected-access
 class Movie:
@@ -267,15 +267,11 @@ class Movie:
    def get_tags(self):
       if not self.tags:
          self.tags = self.db.get_tags_for(self.get_id(), derived=False)
-         for t in self.tags:
-            del t["subsetof"]
       return self.tags
 
    def get_derived_tags(self):
       if not self.derived_tags:
          self.derived_tags = self.db.get_tags_for(self.get_id(), derived=True)
-         for t in self.derived_tags:
-            del t["subsetof"]
       return self.derived_tags
 
    def set_tags(self, tags):
@@ -299,3 +295,32 @@ class Movie:
 
    def __repr__(self):
       return "movie: {}, stars: {}, tags: {}".format(self.mdict, self.get_stars(), self.get_tags())
+
+class Star():
+   def __init__(self, star_dict):
+      self.name = star_dict["name"]
+      self.id = star_dict["id"]
+
+   def get_id(self):
+      return self.id
+
+   def get_name(self):
+      return self.name
+
+   def __str__(self):
+      return self.get_name()
+
+class Tag():
+   def __init__(self, tag_dict):
+      self.name = tag_dict["name"]
+      self.id = tag_dict["id"]
+      self.subsetof = tag_dict["subsetof"]
+
+   def get_id(self):
+      return self.id
+
+   def get_name(self):
+      return self.name
+
+   def __str__(self):
+      return self.get_name()

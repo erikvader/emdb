@@ -396,12 +396,24 @@ class ListWidget(Widget):
    def get_indexlist(self):
       return self._index_list
 
+   def get_selected(self):
+      if self._index_list:
+         return self.list[self._index_list[self.selected]]
+      else:
+         return None
+
+   def get_visible(self):
+      pass
+
+   def get_highlighted(self):
+      pass
+
    def key_event(self, key):
       if key == curses.KEY_DOWN:
          self.next()
       elif key == curses.KEY_UP:
          self.prev()
-      elif key == curses.KEY_RIGHT:
+      elif key == ca.SP:
          self.highlight()
       else:
          return False
