@@ -24,27 +24,6 @@ def ice(f, *args):
    except _curses.error:
       pass
 
-def draw_formatted(win, x, y, s):
-   _,w = win.getmaxyx()
-   escon = False
-   attr = 0
-   for c in s:
-      if x > w:
-         break
-      if escon:
-         escon = False
-         if c == '0':
-            attr = 0
-         elif c.isdigit():
-            attr = curses.color_pair(int(c))
-         continue
-      elif c == '\\':
-         escon = True
-         continue
-      ice(win.addch, y, x, c)
-      ice(win.chgat, y, x, 1, attr)
-      x += 1
-
 class Widget():
    def __init__(self, name):
       self.x = 0
@@ -158,6 +137,34 @@ class Widget():
       if self.panel:
          return self.panel.hidden()
       raise Exception("this widget doesn't have a panel")
+
+   def draw_formatted(self, win, x, y, s):
+      escon = False
+      attr = 0
+      word = ""
+      from itertools import zip_longest
+      for c,h in zip_longest(s, s[1:], fillvalue=" "):
+         if x > self.w:
+            break
+
+         if escon:
+            if c == '{':
+               pass
+            elif c == '}':
+               escon = False
+               attr = self.manager.get_color(word)
+            elif c == '0':
+               attr = 0
+               escon = False
+            else:
+               word += c
+         elif c == '$' and (h == '{' or h == '0'):
+            escon = True
+            word = ""
+         else:
+            ice(win.addch, y, x, c)
+            ice(win.chgat, y, x, 1, attr)
+            x += 1
 
 class Layout(Widget):
    def __init__(self, name):
@@ -385,7 +392,7 @@ class ListWidget(Widget):
          if l + self._list_top == self.selected:
             ice(win.chgat, l, 0, curses.A_REVERSE)
          elif i in self.highlighted:
-            ice(win.chgat, l, 0, curses.color_pair(1))
+            ice(win.chgat, l, 0, self.manager.get_color("list_highlight"))
 
 class FancyListWidget(ListWidget):
    def draw(self, win):
@@ -405,7 +412,7 @@ class FancyListWidget(ListWidget):
          for l,item in ran:
             ice(win.addnstr, l, startx, self._str_of(item, linewidth), linewidth)
             if item in self.highlighted:
-               ice(win.chgat, l, startx, curses.color_pair(1))
+               ice(win.chgat, l, startx, self.manager.get_color("list_highlight"))
 
       draw_these(zip(range(mid, self.h), todraw[self.selected:]))
       draw_these(zip(reversed(range(0, mid)), reversed(todraw[:self.selected])))
@@ -633,11 +640,22 @@ class Manager():
    def __init__(self, layout):
       self.running = True
       self.init_colors = []
+      self.color_names = {"0": 0}
       self.layout = layout
       self.widgets = {}
       self.delayed_draw_queue = []
       self.global_hook = []
       self.current_focus = None
+      self.global_vars = {}
+
+   def __getitem__(self, key):
+      return self.global_vars[key]
+
+   def __setitem__(self, key, value):
+      self.global_vars[key] = value
+
+   def __delitem__(self, key):
+      del self.global_vars[key]
 
    def on_any_event(self, f):
       self.global_hook.append(f)
@@ -650,8 +668,18 @@ class Manager():
          raise Exception("can't find widget with name {}".format(name))
       return self.widgets[name]
 
-   def add_color(self, index, fg, bg):
+   def init_color(self, index, fg, bg):
       self.init_colors.append((index, fg, bg))
+
+   def add_color(self, name, index):
+      self.color_names[name] = index
+
+   def get_color(self, name):
+      cup = self.color_names.get(name, 0)
+      if cup != 0:
+         return curses.color_pair(cup)
+      else:
+         return 0
 
    def start(self):
       os.environ.setdefault('ESCDELAY', '0')

@@ -1,7 +1,9 @@
 #!/bin/python
 
-import interface
-import database
+from . import interface
+from . import database
+
+import os
 
 class StatsWidget(interface.Widget):
    def __init__(self, name):
@@ -33,7 +35,7 @@ class KeyHelpWidget(interface.Widget):
 
       if totallen <= self.w:
          for k,v in self.key_helps.items():
-            self.value += r"\2{}\0: {}, ".format(k, v)
+            self.value += r"${{keyhighlight}}{}$0: {}, ".format(k, v)
          self.value = self.value[:-2]
       else:
          for k in self.key_helps:
@@ -44,7 +46,7 @@ class KeyHelpWidget(interface.Widget):
       if self.resized:
          win.erase()
          self._generate_help_string()
-      interface.draw_formatted(win, 0, 0, self.value)
+      self.draw_formatted(win, 0, 0, self.value)
 
 class ModifyWidget(interface.Widget):
    def __init__(self, name):
@@ -99,7 +101,7 @@ def global_key_help_hook(man):
       fo_keys = fo.key_help
    kh.set_cur_keys({**fo_keys, **gl.key_help})
 
-def main():
+def start(dbfile, archivedir, bufferdir):
    l = GlobalBindings(
       "globals",
       interface.PopupLayout(
@@ -140,10 +142,9 @@ def main():
    )
 
    man = interface.Manager(l)
-   man.add_color(1, interface.curses.COLOR_RED, -1)
-   man.add_color(2, interface.curses.COLOR_BLUE, -1)
+   man.init_color(1, interface.curses.COLOR_RED, -1)
+   man.init_color(2, interface.curses.COLOR_BLUE, -1)
+   man.add_color("keyhighlight", 2)
    man.on_any_event(global_key_help_hook)
    man.start()
 
-if __name__ == "__main__":
-   main()
