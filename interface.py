@@ -103,12 +103,9 @@ class Widget():
       if not self.focusable:
          raise Exception("can't focus anything non-focusable")
 
-      self.touch()
-      self.is_focused = True
+      self._focus()
       if self.parent:
          self.parent._focus_child(self)
-      self.manager.current_focus = self
-      self.onfocus()
 
    def onfocus(self):
       pass
@@ -123,7 +120,9 @@ class Widget():
 
    def _focus(self):
       self.is_focused = True
+      self.manager.current_focus = self
       self.touch()
+      self.onfocus()
 
    def _hide(self):
       if self.panel:
@@ -308,6 +307,44 @@ class SplitLayout(Layout):
          )
       )
 
+class InputWidget(Widget):
+   def __init__(self, name):
+      super().__init__(name)
+      self.value = []
+      self.cursor = 0
+      self._offset = 0
+
+   def key_event(self, key):
+      if ca.isalnum(key) or key == ord(' '):
+         self.value.insert(self._offset + self.cursor, chr(key))
+         self.cursor += 1
+      elif key == curses.KEY_LEFT:
+         if self.cursor + self._offset > 0:
+            self.cursor -= 1
+      elif key == curses.KEY_RIGHT:
+         if self.cursor + self._offset < len(self.value):
+            self.cursor += 1
+      else:
+         return False
+      self.touch()
+      return True
+
+   def draw(self, win):
+      win.erase()
+      if self.cursor >= self.w:
+         self.cursor -= 1
+         self._offset += 1
+      elif self.cursor < 0:
+         self.cursor += 1
+         self._offset -= 1
+      x = 0
+      for c in self.value[self._offset:]:
+         if x > self.w:
+            break
+         ice(win.addch, 0, x, c)
+         x += 1
+      ice(win.chgat, 0, self.cursor, 1, curses.A_REVERSE)
+
 class ListWidget(Widget):
    def __init__(self, name):
       super().__init__(name)
@@ -399,7 +436,7 @@ class FancyListWidget(ListWidget):
       win.erase()
       mid = int(self.h / 2)
 
-      win.addstr(mid, 0, "-> ")
+      win.addstr(mid, 0, "-> ", self.manager.get_color("fancy_list_arrow"))
 
       todraw = self.get_indexlist()
       if not todraw:
@@ -532,6 +569,14 @@ class PopupLayout(Layout):
       super()._resize(stdx, stdy, stdw, stdh)
       self.widgets[0]._resize(stdx, stdy, stdw, stdh)
       self.widgets[1]._resize(stdx, stdy, stdw, stdh)
+
+   #pylint: disable=protected-access
+   def _focus_child(self, child):
+      super()._focus_child(child)
+      if self.focused == 1:
+         self.show_popup()
+      else:
+         self.hide_popup()
 
 class WrapperLayout(Layout):
    def __init__(self, name, widget):

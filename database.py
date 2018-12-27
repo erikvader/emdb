@@ -241,6 +241,7 @@ class Movie:
       self.mdict = movie_dict
       self.stars = None
       self.tags = None
+      self.derived_tags = None
 
    def get_id(self):
       return self.mdict["id"]
@@ -270,6 +271,13 @@ class Movie:
             del t["subsetof"]
       return self.tags
 
+   def get_derived_tags(self):
+      if not self.derived_tags:
+         self.derived_tags = self.db.get_tags_for(self.get_id(), derived=True)
+         for t in self.derived_tags:
+            del t["subsetof"]
+      return self.derived_tags
+
    def set_tags(self, tags):
       self.tags = None
       self.db.set_tags_for(self.get_id(), tags)
@@ -285,6 +293,9 @@ class Movie:
    def set_name(self, name):
       self.mdict["name"] = name
       self.db.set_name_for(self.get_id(), name)
+
+   def __str__(self):
+      return self.get_name()
 
    def __repr__(self):
       return "movie: {}, stars: {}, tags: {}".format(self.mdict, self.get_stars(), self.get_tags())
