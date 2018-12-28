@@ -351,22 +351,36 @@ class ListWidget(Widget):
       self.list = []
       self.selected = 0
       self.highlighted = set()
+      # TODO: should be OrderedDict?
       self._index_list = []
       self._list_top = 0
+      self._last_filter_fun = lambda _: True
+      self._last_sort_fun = lambda x: x
 
-   def select(self, index):
+   def _select(self, index):
       if not self.list:
          return
       self.selected = index
+
+      if self.selected >= len(self._index_list):
+         self.selected = len(self._index_list) - 1
+
+      if self.selected < 0:
+         self.selected = 0
+
       self.touch()
 
-   def next(self):
-      if self.selected < len(self._index_list) - 1:
-         self.select(self.selected + 1)
+   def next(self, step=1):
+      self._select(self.selected + step)
 
-   def prev(self):
-      if self.selected > 0:
-         self.select(self.selected - 1)
+   def prev(self, step=1):
+      self._select(self.selected - step)
+
+   def goto_first(self):
+      self._select(0)
+
+   def goto_last(self):
+      self._select(len(self._index_list) - 1)
 
    def highlight(self):
       if not self._index_list:
@@ -378,23 +392,52 @@ class ListWidget(Widget):
       else:
          self.highlighted.add(i)
 
+   def clear_highlighted(self):
+      self.highlighted.clear()
+
    def set_list(self, l):
       self.list = l
       self.clear_filter()
+      self.clear_highlighted()
 
-   def filter_by(self, indexlist):
-      self._list_top = 0
-      self.selected = 0
-      if indexlist is not None:
-         self._index_list = indexlist
-      else:
-         self._index_list = list(range(0, len(self.list)))
+   def add(self, a):
+      self.list.append(a)
+      self.filter_by(self._last_filter_fun)
+      self.sort_by(self._last_sort_fun)
+
+   def _remove_index(self, i):
+      del self.list[i]
+      self.highlighted.remove(i)
+      self._index_list.remove(i)
+      self._select(self.selected)
+
+   def remove_selected(self):
+      if not self._index_list:
+         return
+      self._remove_index(self._index_list[self.selected])
+
+   def filter_by(self, pred):
+      # self._list_top = 0
+      self._index_list = [i for i,x in enumerate(self.list) if pred(x)]
+      self._select(self.selected)
+      self._last_filter_fun = pred
 
    def clear_filter(self):
-      self.filter_by(None)
+      self.filter_by(lambda _: True)
+      # self._index_list = list(range(0, len(self.list)))
 
-   def get_indexlist(self):
-      return self._index_list
+   def sort_by(self, keyfun):
+      dec = [(l, i in self._index_list, i in self.highlighted) for i,l in enumerate(self.list)]
+      self.highlighted.clear()
+      self._index_list.clear()
+
+      dec.sort(key=lambda tup: keyfun(tup[0]))
+
+      self.list = [l for l,_,_ in dec]
+      self.highlighted = {i for i,(_,h,_) in enumerate(dec) if h}
+      self._index_list = [i for i,(_,_,il) in enumerate(dec) if il]
+
+      self._last_sort_fun = keyfun
 
    def get_selected(self):
       if self._index_list:
@@ -403,10 +446,11 @@ class ListWidget(Widget):
          return None
 
    def get_visible(self):
-      pass
+      return [self.list[i] for i in self._index_list]
 
+   # in no particular order
    def get_highlighted(self):
-      pass
+      return [x for i,x in enumerate(self.list) if i in self.highlighted]
 
    def key_event(self, key):
       if key == curses.KEY_DOWN:
@@ -427,7 +471,7 @@ class ListWidget(Widget):
 
    def draw(self, win):
       win.erase()
-      todraw = self.get_indexlist()
+      todraw = self._index_list
       if not todraw:
          return
 
@@ -450,7 +494,7 @@ class FancyListWidget(ListWidget):
 
       win.addstr(mid, 0, "-> ", self.manager.get_color("fancy_list_arrow"))
 
-      todraw = self.get_indexlist()
+      todraw = self._index_list
       if not todraw:
          return
 
