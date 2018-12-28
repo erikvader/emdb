@@ -38,19 +38,22 @@ def start_inspection(man):
    # import subprocess as P
    # P.run(["mpv", os.path.join(man["id"], randChoice)], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
 
-   stars = man.get_widget("modifyMovieStars")
-   stars.focus()
-   stars.set_list(man["db"].get_stars())
-   tags = man.get_widget("modifyMovieTags")
-   tags.set_list(man["db"].get_tags())
+   def err(manager):
+      manager.get_widget("MAIN").focus()
+
+   def succ(manager):
+      pass
+
+   man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
    man.get_widget("modifyTitle").set_title(randChoice)
 
 def add_star(man):
-   def err(inp):
-      inp.manager.get_widget("MAIN").focus()
-   def succ(inp):
-      inp.manager.get_widget("MAIN").focus()
-      val = "".join(inp.value)
+   def err(manager):
+      manager.get_widget("MAIN").focus()
+   def succ(manager):
+      manager.get_widget("MAIN").focus()
+      inp = manager.get_widget("input")
+      val = inp.get_input()
       if val:
          inp.manager["db"].add_star(val)
 
@@ -58,11 +61,12 @@ def add_star(man):
    man.get_widget("input").new_session(on_error=err, on_success=succ)
 
 def add_tag(man):
-   def err(inp):
-      inp.manager.get_widget("MAIN").focus()
-   def succ(inp):
-      inp.manager.get_widget("MAIN").focus()
-      val = "".join(inp.value)
+   def err(manager):
+      manager.get_widget("MAIN").focus()
+   def succ(manager):
+      manager.get_widget("MAIN").focus()
+      inp = manager.get_widget("input")
+      val = inp.get_input()
       if val:
          inp.manager["db"].add_tag(val)
 
@@ -70,6 +74,26 @@ def add_tag(man):
    man.get_widget("input").new_session(on_error=err, on_success=succ)
 
 # widgets #####################################################################
+class QuerySession():
+   def __init__(self, manager):
+      self.on_success = lambda _: None
+      self.on_error = lambda _: None
+      self.manager = manager
+      self.key_help = {"ESC": "abort", "RET": "confirm"}
+
+   def new_session(self, on_success=None, on_error=None):
+      self.on_success = on_success if on_success else lambda s: None
+      self.on_error = on_error if on_error else lambda s: None
+
+   def key_event(self, key):
+      if key == interface.ca.NL:
+         self.on_success(self.manager)
+      elif key == interface.ca.ESC:
+         self.on_error(self.manager)
+      else:
+         return False
+      return True
+
 class StatsWidget(interface.Widget):
    def __init__(self, name):
       super().__init__(name)
@@ -120,23 +144,79 @@ class TitleWidget(interface.Widget):
 
    def set_title(self, title):
       self.value = title
+      self.resized = True # haxx to force draw to clear
       self.touch()
 
    def draw(self, win):
       if self.resized:
          win.erase()
       x = max(0, (self.w - len(self.value)) // 2)
-      win.addstr(0, x, self.value)
+      interface.ice(win.addnstr, 0, x, self.value, self.w)
 
 class ModifyStarsWidget(interface.ListWidget):
+   def __init__(self, name):
+      super().__init__(name)
+      self.key_help = {
+         "j/<down>": "move down",
+         "k/<up>": "move up",
+         "space": "select",
+         "TAB": "goto other"
+      }
+
    def key_event(self, key):
       if super().key_event(key):
          return True
 
-      # if key == 
+      if key == interface.ca.TAB:
+         self.manager.get_widget("modifyMovieTags").focus()
+      else:
+         return False
+      return True
+
+   def clear(self):
+      self.set_list(self.manager["db"].get_stars())
 
 class ModifyTagsWidget(interface.ListWidget):
-   pass
+   def __init__(self, name):
+      super().__init__(name)
+      self.key_help = {
+         "j/<down>": "move down",
+         "k/<up>": "move up",
+         "space": "select",
+         "TAB": "goto other"
+      }
+
+   def key_event(self, key):
+      if super().key_event(key):
+         return True
+
+      if key == interface.ca.TAB:
+         self.manager.get_widget("modifyMovieStars").focus()
+      else:
+         return False
+      return True
+
+   def clear(self):
+      self.set_list(self.manager["db"].get_tags())
+
+class ModifyMovieQuery(interface.WrapperLayout, QuerySession):
+   def __init__(self, name, widget):
+      interface.WrapperLayout.__init__(self, name, widget)
+      QuerySession.__init__(self, self.manager)
+
+   def new_session(self, on_success=None, on_error=None):
+      super().new_session(on_success, on_error)
+      stars = self.manager.get_widget("modifyMovieStars")
+      stars.clear()
+      stars.focus()
+      self.manager.get_widget("modifyMovieTags").clear()
+
+   def key_event(self, key):
+      if interface.WrapperLayout.key_event(self, key):
+         return True
+      if QuerySession.key_event(self, key):
+         return True
+      return False
 
 class GlobalBindings(interface.WrapperLayout):
    def __init__(self, name, widget):
@@ -164,13 +244,10 @@ class SelectorWidget(interface.FancyListWidget):
       self.set_list(self.manager["db"].get_movies())
 
    def key_event(self, key):
-      if key == interface.curses.KEY_DOWN or key == ord('j'):
-         self.next()
-         # self.manager.get_widget("img").touch()
-      elif key == interface.curses.KEY_UP or key == ord('k'):
-         self.prev()
-         # self.manager.get_widget("img").touch()
-      elif key == ord('i'):
+      if super().key_event(key):
+         return True
+
+      if key == ord('i'):
          start_inspection(self.manager)
       elif key == ord('p'):
          add_star(self.manager)
@@ -185,42 +262,34 @@ class PreviewWidget(interface.ImageWidget):
       pass
       # self.set_image("/home/erik/Pictures/PFUDOR_2.jpg")
 
-class MyInputWidget(interface.InputWidget):
+class MyInputWidget(interface.InputWidget, QuerySession):
    def __init__(self, name):
-      super().__init__(name)
-      self.on_success = lambda s: None
-      self.on_error = lambda s: None
+      interface.InputWidget.__init__(self, name)
+      QuerySession.__init__(self, self.manager)
 
    def new_session(self, on_success=None, on_error=None):
-      self.on_success = on_success if on_success else lambda s: None
-      self.on_error = on_error if on_error else lambda s: None
-      self.value = []
-      self.cursor = 0
-      self._offset = 0
+      super().new_session(on_success, on_error)
+      self.clear()
       self.focus()
 
    def key_event(self, key):
-      if super().key_event(key):
+      if interface.InputWidget.key_event(self, key):
          return True
-
-      if key == interface.ca.NL:
-         self.on_success(self)
-      elif key == interface.ca.ESC:
-         self.on_error(self)
-      else:
-         return False
-      return True
+      if QuerySession.key_event(self, key):
+         return True
+      return False
 
 # globals #####################################################################
 
 def global_key_help_hook(man):
+   keys = {}
+   def map_fun(wid, *_, **__):
+      if hasattr(wid, "key_help"):
+         keys.update(wid.key_help)
+
+   man.map_focused(map_fun)
    kh = man.get_widget("keyHelp")
-   gl = man.get_widget("globals")
-   fo = man.current_focus
-   fo_keys = {}
-   if hasattr(fo, "key_help"):
-      fo_keys = fo.key_help
-   kh.set_cur_keys({**gl.key_help, **fo_keys})
+   kh.set_cur_keys(keys)
 
 # main ########################################################################
 
@@ -262,11 +331,14 @@ def start(dbfile, archivedir, bufferdir, inspectdir):
                      "modifyMovieLayout1",
                      interface.SplitLayout.Alignment.VERTICAL,
                      TitleWidget("modifyTitle"), 1,
-                     interface.SplitLayout(
-                        "modifyMovieLayout2",
-                        interface.SplitLayout.Alignment.HORIZONTAL,
-                        ModifyStarsWidget("modifyMovieStars"), 0.5,
-                        ModifyTagsWidget("modifyMovieTags"), 0.0
+                     ModifyMovieQuery(
+                        "modifyMovieQuery",
+                        interface.SplitLayout(
+                           "modifyMovieLayout2",
+                           interface.SplitLayout.Alignment.HORIZONTAL,
+                           ModifyStarsWidget("modifyMovieStars"), 0.5,
+                           ModifyTagsWidget("modifyMovieTags"), 0.0
+                        )
                      ), 0.0
                   )
                ),
@@ -295,6 +367,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir):
    man.init_color(2, interface.curses.COLOR_BLUE, -1)
    man.add_color("key_highlight", 2)
    man.add_color("fancy_list_arrow", 1)
+   man.add_color("list_highlight", 1)
    man.on_any_event(global_key_help_hook)
 
    db = database.Database(dbfile)

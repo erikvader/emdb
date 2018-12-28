@@ -39,7 +39,6 @@ class Widget():
       self.manager = None
       self.name = name
       self.focusable = True
-      self.keybinds = {}
 
    def _init(self, x, y, w, h, manager, parent):
       self.x = x
@@ -68,9 +67,6 @@ class Widget():
 
    def post_draw(self):
       pass
-
-   def bind_key(self, key, fun):
-      self.keybinds[key] = fun
 
    def _key_event(self, key):
       return self.key_event(key)
@@ -164,6 +160,16 @@ class Widget():
             ice(win.addch, y, x, c)
             ice(win.chgat, y, x, 1, attr)
             x += 1
+
+   def map_focused(self, f, *args, **kwargs):
+      if kwargs["top_down"]:
+         if self.parent:
+            self.parent.map_focused(f, *args, **kwargs)
+         f(self, *args, **kwargs)
+      else:
+         f(self, *args, **kwargs)
+         if self.parent:
+            self.parent.map_focused(f, *args, **kwargs)
 
 class Layout(Widget):
    def __init__(self, name):
@@ -314,6 +320,14 @@ class InputWidget(Widget):
       self.cursor = 0
       self._offset = 0
 
+   def clear(self):
+      self.value = []
+      self.cursor = 0
+      self._offset = 0
+
+   def get_input(self):
+      return "".join(self.value)
+
    def key_event(self, key):
       if ca.isalnum(key) or key == ord(' '):
          self.value.insert(self._offset + self.cursor, chr(key))
@@ -324,6 +338,10 @@ class InputWidget(Widget):
       elif key == curses.KEY_RIGHT:
          if self.cursor + self._offset < len(self.value):
             self.cursor += 1
+      elif key == ca.BS or key == curses.KEY_BACKSPACE:
+         if self.cursor + self._offset > 0:
+            del self.value[self.cursor-1]
+            self.cursor -= 1
       else:
          return False
       self.touch()
@@ -391,6 +409,7 @@ class ListWidget(Widget):
          self.highlighted.remove(i)
       else:
          self.highlighted.add(i)
+      self.touch()
 
    def clear_highlighted(self):
       self.highlighted.clear()
@@ -453,9 +472,9 @@ class ListWidget(Widget):
       return [x for i,x in enumerate(self.list) if i in self.highlighted]
 
    def key_event(self, key):
-      if key == curses.KEY_DOWN:
+      if key == curses.KEY_DOWN or key == ord('j'):
          self.next()
-      elif key == curses.KEY_UP:
+      elif key == curses.KEY_UP or key == ord('k'):
          self.prev()
       elif key == ca.SP:
          self.highlight()
@@ -482,10 +501,12 @@ class ListWidget(Widget):
 
       for l,i in enumerate(todraw[self._list_top:]):
          ice(win.addnstr, l, 0, self._str_of(i, self.w), self.w)
+         attr = 0
          if l + self._list_top == self.selected:
-            ice(win.chgat, l, 0, curses.A_REVERSE)
-         elif i in self.highlighted:
-            ice(win.chgat, l, 0, self.manager.get_color("list_highlight"))
+            attr = curses.A_REVERSE
+         if i in self.highlighted:
+            attr |= self.manager.get_color("list_highlight")
+         ice(win.chgat, l, 0, attr)
 
 class FancyListWidget(ListWidget):
    def draw(self, win):
@@ -781,6 +802,9 @@ class Manager():
          return curses.color_pair(cup)
       else:
          return 0
+
+   def map_focused(self, f, *args, top_down=True, **kwargs):
+      self.current_focus.map_focused(f, *args, top_down=top_down, **kwargs)
 
    def start(self):
       os.environ.setdefault('ESCDELAY', '0')
