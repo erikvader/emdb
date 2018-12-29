@@ -12,17 +12,89 @@ import fcntl
 import termios
 from time import sleep
 
-def truncateStr(s, w):
-   if len(s) > w:
-      return "{}...".format(s[:w-3])
-   return s
-
 # Ignore Curses Error
 def ice(f, *args):
    try:
       f(*args)
    except _curses.error:
       pass
+
+class StringFormatter():
+   @staticmethod
+   def _parse_string(string, manager):
+      escon = False
+      word = ""
+      from itertools import zip_longest
+      for c,h in zip_longest(string, string[1:], fillvalue=" "):
+         if escon:
+            if c == '{':
+               pass
+            elif c == '}':
+               escon = False
+               yield manager.get_color(word)
+            elif c == '0':
+               yield 0
+               escon = False
+            else:
+               word += c
+         elif c == '$' and (h == '{' or h == '0'):
+            escon = True
+            word = ""
+         else:
+            yield c
+
+   @staticmethod
+   def _parse(stringorlist, manager):
+      if isinstance(stringorlist, str):
+         stringorlist = [stringorlist]
+
+      for l in stringorlist:
+         yield True
+         for c in StringFormatter._parse_string(l, manager):
+            yield c
+
+   @staticmethod
+   def parse_and_len(stringorlist, manager):
+      parsed = list(StringFormatter._parse(stringorlist, manager))
+      return sum(1 for x in parsed if isinstance(x, str)), parsed
+
+   @staticmethod
+   def _draw_dots(win, x, y):
+      for _ in range(3):
+         if x < 0:
+            break
+         ice(win.addch, y, x, '.')
+         x -= 1
+
+   @staticmethod
+   def draw(win, x, y, stringorlist, manager, centered=False, wrap=False, dots=False):
+      _, w = win.getmaxyx()
+      if centered:
+         lenn, parsed = StringFormatter.parse_and_len(stringorlist, manager)
+         x = max(x, (w - lenn) // 2)
+      else:
+         parsed = StringFormatter._parse(stringorlist, manager)
+      return StringFormatter.draw_parsed(win, x, y, parsed, wrap=wrap, dots=dots)
+
+   @staticmethod
+   def draw_parsed(win, x, y, parsed, wrap=False, dots=False):
+      _, w = win.getmaxyx()
+      attr = 0
+      for c in parsed:
+         if x >= w:
+            if dots:
+               StringFormatter._draw_dots(win, x-1, y)
+            break
+
+         if isinstance(c, str):
+            ice(win.addch, y, x, c)
+            if attr != 0:
+               ice(win.chgat, y, x, 1, attr)
+            x += 1
+         elif not isinstance(c, bool):
+            attr = c
+
+      return (x, y)
 
 class Widget():
    def __init__(self, name):
@@ -64,6 +136,9 @@ class Widget():
 
    def draw(self, win):
       pass
+
+   def format_draw(self, win, x, y, string, **kwargs):
+      return StringFormatter.draw(win, x, y, string, self.manager, **kwargs)
 
    def post_draw(self):
       pass
@@ -132,34 +207,6 @@ class Widget():
       if self.panel:
          return self.panel.hidden()
       raise Exception("this widget doesn't have a panel")
-
-   def draw_formatted(self, win, x, y, s):
-      escon = False
-      attr = 0
-      word = ""
-      from itertools import zip_longest
-      for c,h in zip_longest(s, s[1:], fillvalue=" "):
-         if x > self.w:
-            break
-
-         if escon:
-            if c == '{':
-               pass
-            elif c == '}':
-               escon = False
-               attr = self.manager.get_color(word)
-            elif c == '0':
-               attr = 0
-               escon = False
-            else:
-               word += c
-         elif c == '$' and (h == '{' or h == '0'):
-            escon = True
-            word = ""
-         else:
-            ice(win.addch, y, x, c)
-            ice(win.chgat, y, x, 1, attr)
-            x += 1
 
    def map_focused(self, f, *args, **kwargs):
       if kwargs["top_down"]:
@@ -373,7 +420,10 @@ class ListWidget(Widget):
       self._index_list = []
       self._list_top = 0
       self._last_filter_fun = lambda _: True
-      self._last_sort_fun = lambda x: x
+      self._last_sort_fun = lambda x: x.get_id()
+
+   def changed(self):
+      pass
 
    def _select(self, index):
       if not self.list:
@@ -387,6 +437,7 @@ class ListWidget(Widget):
          self.selected = 0
 
       self.touch()
+      self.changed()
 
    def next(self, step=1):
       self._select(self.selected + step)
@@ -422,7 +473,8 @@ class ListWidget(Widget):
    def add(self, a):
       self.list.append(a)
       self.filter_by(self._last_filter_fun)
-      self.sort_by(self._last_sort_fun)
+      # self.sort_by(self._last_sort_fun)
+      self.touch()
 
    def _remove_index(self, i):
       del self.list[i]
@@ -436,14 +488,13 @@ class ListWidget(Widget):
       self._remove_index(self._index_list[self.selected])
 
    def filter_by(self, pred):
-      # self._list_top = 0
       self._index_list = [i for i,x in enumerate(self.list) if pred(x)]
       self._select(self.selected)
       self._last_filter_fun = pred
+      self.touch()
 
    def clear_filter(self):
       self.filter_by(lambda _: True)
-      # self._index_list = list(range(0, len(self.list)))
 
    def sort_by(self, keyfun):
       dec = [(l, i in self._index_list, i in self.highlighted) for i,l in enumerate(self.list)]
@@ -453,10 +504,11 @@ class ListWidget(Widget):
       dec.sort(key=lambda tup: keyfun(tup[0]))
 
       self.list = [l for l,_,_ in dec]
-      self.highlighted = {i for i,(_,h,_) in enumerate(dec) if h}
-      self._index_list = [i for i,(_,_,il) in enumerate(dec) if il]
+      self.highlighted = {i for i,(_,_,h) in enumerate(dec) if h}
+      self._index_list = [i for i,(_,il,_) in enumerate(dec) if il]
 
       self._last_sort_fun = keyfun
+      self.touch()
 
    def get_selected(self):
       if self._index_list:
@@ -486,7 +538,7 @@ class ListWidget(Widget):
       obj = self.list[i]
       if hasattr(obj, "widgetFormat"):
          return obj.widgetFormat(width)
-      return truncateStr(str(obj), width)
+      return str(obj)
 
    def draw(self, win):
       win.erase()
@@ -500,7 +552,7 @@ class ListWidget(Widget):
          self._list_top = self.selected - self.h + 1
 
       for l,i in enumerate(todraw[self._list_top:]):
-         ice(win.addnstr, l, 0, self._str_of(i, self.w), self.w)
+         self.format_draw(win, 0, l, self._str_of(i, self.w), dots=True)
          attr = 0
          if l + self._list_top == self.selected:
             attr = curses.A_REVERSE
@@ -524,7 +576,7 @@ class FancyListWidget(ListWidget):
 
       def draw_these(ran):
          for l,item in ran:
-            ice(win.addnstr, l, startx, self._str_of(item, linewidth), linewidth)
+            self.format_draw(win, startx, l, self._str_of(item, linewidth), dots=True)
             if item in self.highlighted:
                ice(win.chgat, l, startx, self.manager.get_color("list_highlight"))
 

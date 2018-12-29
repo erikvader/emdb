@@ -21,6 +21,10 @@ def move_file (f, src, dest):
    shutil.move(s, d)
    return new_f
 
+def play(path):
+   import subprocess as P
+   P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
+
 # commands from main widget ###################################################
 
 def start_inspection(man):
@@ -33,16 +37,21 @@ def start_inspection(man):
    import random
    randChoice = allCandidates[random.randrange(len(allCandidates))]
 
-   # randChoice = move_file(randChoice, man["bd"], man["id"])
-
-   # import subprocess as P
-   # P.run(["mpv", os.path.join(man["id"], randChoice)], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
+   randChoice = move_file(randChoice, man["bd"], man["id"])
+   play(os.path.join(man["id"], randChoice))
 
    def err(manager):
       manager.get_widget("MAIN").focus()
 
    def succ(manager):
-      pass
+      newName = move_file(randChoice, man["id"], man["ad"])
+      stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
+      tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
+      newMovie = man["db"].add_movie(newName, "", False, stars, tags)
+
+      mainWid = manager.get_widget("MAIN")
+      mainWid.add(newMovie)
+      mainWid.focus()
 
    man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
    man.get_widget("modifyTitle").set_title(randChoice)
@@ -98,17 +107,27 @@ class StatsWidget(interface.Widget):
    def __init__(self, name):
       super().__init__(name)
       self.value = "stats here plz"
+      self.movie = None
+
+   def set_movie(self, movie):
+      self.movie = movie
+      self.touch()
+      self.resized = True # haxx
+
+   def _generate_string(self):
+      pass
 
    def draw(self, win):
       if self.resized:
          win.erase()
+         self._generate_string()
       win.addstr(0, 0, self.value)
 
 class KeyHelpWidget(interface.Widget):
    def __init__(self, name):
       super().__init__(name)
       self.key_helps = {}
-      self.value = ""
+      self.value = []
 
    def set_cur_keys(self, keys):
       self.key_helps = keys
@@ -116,26 +135,26 @@ class KeyHelpWidget(interface.Widget):
       self.resized = True # haxx to make it erase in self.draw()
 
    def _generate_help_string(self):
-      self.value = ""
-      totallen = 0
-      for k,v in self.key_helps.items():
-         totallen += len(": ") + len(k) + len(v) + len(", ")
-      totallen -= len(", ")
+      self.value = []
 
-      if totallen <= self.w:
-         for k,v in self.key_helps.items():
-            self.value += r"${{key_highlight}}{}$0: {}, ".format(k, v)
-         self.value = self.value[:-2]
+      for k,v in self.key_helps.items():
+         self.value.extend(["${key_highlight}", k, ":$0 ", v, ", "])
+      del self.value[-1]
+
+      lenn, parsed = interface.StringFormatter.parse_and_len(self.value, self.manager)
+
+      if lenn <= self.w:
+         self.value = parsed
       else:
-         for k in self.key_helps:
-            self.value += k + ", "
-         self.value = self.value[:-2]
+         self.value = [", " if i % 5 == 2 else x for i,x in enumerate(self.value) if i % 5 <= 2]
+         del self.value[-1]
+         _, self.value = interface.StringFormatter.parse_and_len(self.value, self.manager)
 
    def draw(self, win):
       if self.resized:
          win.erase()
          self._generate_help_string()
-      self.draw_formatted(win, 0, 0, self.value)
+      interface.StringFormatter.draw_parsed(win, 0, 0, self.value, dots=True)
 
 class TitleWidget(interface.Widget):
    def __init__(self, name):
@@ -150,8 +169,7 @@ class TitleWidget(interface.Widget):
    def draw(self, win):
       if self.resized:
          win.erase()
-      x = max(0, (self.w - len(self.value)) // 2)
-      interface.ice(win.addnstr, 0, x, self.value, self.w)
+      self.format_draw(win, 0, 0, self.value, centered=True)
 
 class ModifyStarsWidget(interface.ListWidget):
    def __init__(self, name):
@@ -243,6 +261,9 @@ class SelectorWidget(interface.FancyListWidget):
    def init(self):
       self.set_list(self.manager["db"].get_movies())
 
+   def changed(self):
+      pass
+
    def key_event(self, key):
       if super().key_event(key):
          return True
@@ -253,6 +274,8 @@ class SelectorWidget(interface.FancyListWidget):
          add_star(self.manager)
       elif key == ord('t'):
          add_tag(self.manager)
+      elif key == ord('o'):
+         self.sort_by(lambda x: x.get_path())
       else:
          return False
       return True
