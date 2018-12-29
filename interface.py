@@ -111,6 +111,7 @@ class Widget():
       self.manager = None
       self.name = name
       self.focusable = True
+      self.initialized = False
 
    def _init(self, x, y, w, h, manager, parent):
       self.x = x
@@ -125,6 +126,7 @@ class Widget():
       self.manager = manager
       self.manager.widgets[self.name] = self
       self.init()
+      self.initialized = True
 
    def init(self):
       pass
@@ -422,9 +424,6 @@ class ListWidget(Widget):
       self._last_filter_fun = lambda _: True
       self._last_sort_fun = lambda x: x.get_id()
 
-   def changed(self):
-      pass
-
    def _select(self, index):
       if not self.list:
          return
@@ -437,7 +436,6 @@ class ListWidget(Widget):
          self.selected = 0
 
       self.touch()
-      self.changed()
 
    def next(self, step=1):
       self._select(self.selected + step)
@@ -473,7 +471,7 @@ class ListWidget(Widget):
    def add(self, a):
       self.list.append(a)
       self.filter_by(self._last_filter_fun)
-      # self.sort_by(self._last_sort_fun)
+      self.sort_by(self._last_sort_fun)
       self.touch()
 
    def _remove_index(self, i):

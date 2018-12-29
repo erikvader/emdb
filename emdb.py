@@ -106,22 +106,22 @@ class QuerySession():
 class StatsWidget(interface.Widget):
    def __init__(self, name):
       super().__init__(name)
-      self.value = "stats here plz"
+      self.values = []
       self.movie = None
 
    def set_movie(self, movie):
       self.movie = movie
       self.touch()
-      self.resized = True # haxx
+      self._generate_string()
 
    def _generate_string(self):
-      pass
+      self.values.clear()
+      self.values.append(self.movie.get_disp())
 
    def draw(self, win):
-      if self.resized:
-         win.erase()
-         self._generate_string()
-      win.addstr(0, 0, self.value)
+      win.erase()
+      for i,v in enumerate(self.values):
+         self.format_draw(win, 0, i, v)
 
 class KeyHelpWidget(interface.Widget):
    def __init__(self, name):
@@ -131,8 +131,8 @@ class KeyHelpWidget(interface.Widget):
 
    def set_cur_keys(self, keys):
       self.key_helps = keys
+      self._generate_help_string()
       self.touch()
-      self.resized = True # haxx to make it erase in self.draw()
 
    def _generate_help_string(self):
       self.value = []
@@ -153,7 +153,6 @@ class KeyHelpWidget(interface.Widget):
    def draw(self, win):
       if self.resized:
          win.erase()
-         self._generate_help_string()
       interface.StringFormatter.draw_parsed(win, 0, 0, self.value, dots=True)
 
 class TitleWidget(interface.Widget):
@@ -261,9 +260,6 @@ class SelectorWidget(interface.FancyListWidget):
    def init(self):
       self.set_list(self.manager["db"].get_movies())
 
-   def changed(self):
-      pass
-
    def key_event(self, key):
       if super().key_event(key):
          return True
@@ -313,6 +309,11 @@ def global_key_help_hook(man):
    man.map_focused(map_fun)
    kh = man.get_widget("keyHelp")
    kh.set_cur_keys(keys)
+
+def update_stats(man):
+   sel = man.get_widget("MAIN")
+   if sel.get_selected():
+      man.get_widget("videoStats").set_movie(sel.get_selected())
 
 # main ########################################################################
 
@@ -392,6 +393,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir):
    man.add_color("fancy_list_arrow", 1)
    man.add_color("list_highlight", 1)
    man.on_any_event(global_key_help_hook)
+   man.on_any_event(update_stats)
 
    db = database.Database(dbfile)
    man["db"] = db

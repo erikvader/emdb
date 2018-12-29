@@ -206,16 +206,6 @@ class Database:
          movies = self._get_all_from(c, "Movie", "id = {}".format(mid) if mid else "")
          return [Movie(self, m) for m in movies]
 
-   # def modify_movie(self, movie):
-   #    with self._transaction() as c:
-   #       m = movie.copy()
-   #       tags = m.pop("tagging")
-   #       stars = m.pop("starring")
-   #       m["starred"] = int(m["starred"])
-   #       self._modify(c, "Movie", "id", m)
-   #       self._link_set(c, m["id"], [s["id"] for s in stars], pid=True)
-   #       self._link_set(c, m["id"], [t["id"] for t in tags], tid=True)
-
    def get_stars_for(self, mid):
       with self._cursor() as c:
          stars = self._get_stars_for(c, mid)
@@ -256,6 +246,9 @@ class Movie:
    def get_name(self):
       return self.mdict["name"]
 
+   def get_disp(self):
+      return self.get_name() if self.get_name() else self.get_path()
+
    def is_starred(self):
       return bool(self.mdict["starred"])
 
@@ -291,7 +284,7 @@ class Movie:
       self.db.set_name_for(self.get_id(), name)
 
    def __str__(self):
-      return self.get_name()
+      return self.get_disp()
 
    def __repr__(self):
       return "movie: {}, stars: {}, tags: {}".format(self.mdict, self.get_stars(), self.get_tags())
