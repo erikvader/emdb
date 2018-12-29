@@ -638,25 +638,31 @@ class ImageWidget(Widget):
       return (xpixels // cols), (ypixels // rows)
 
    def draw(self, win):
-      if not self.path:
-         win.clear()
-      else:
+      win.erase()
+      if self.path:
          self.manager.draw_delayed(self)
 
    def post_draw(self):
       aspect = self.img_w / self.img_h
       windoww = self.w * self.cw
       windowh = self.h * self.ch
-      dw = windoww
+      dw = windoww - 3
       dh = int(dw / aspect)
       if dh > windowh:
          dh = windowh
          dw = int(dh * aspect)
+      windowx = self.x * self.cw
+      windowy = self.y * self.cw + 5
 
-      inp = '0;1;{};{};{};{};;;;;{}\n4;\n3;\n'.format(
-         self.x * self.cw,
-         self.y * self.ch,
-         dw - 3,
+      # clear, draw, sync, sync draw
+      inp = '6;{};{};{};{}\n0;1;{};{};{};{};;;;;{}\n4;\n3;\n'.format(
+         windowx,
+         windowy,
+         windoww,
+         windowh + 5,
+         windowx,
+         windowy,
+         dw,
          dh,
          self.path
       )

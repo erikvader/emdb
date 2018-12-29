@@ -4,6 +4,8 @@ from . import interface
 from . import database
 
 import os
+import subprocess as P
+import shutil
 
 # random io ###################################################################
 def move_file (f, src, dest):
@@ -17,12 +19,10 @@ def move_file (f, src, dest):
       new_f = str(num) + "_" + f
       d = os.path.join(dest, new_f)
       num += 1
-   import shutil
    shutil.move(s, d)
    return new_f
 
 def play(path):
-   import subprocess as P
    P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
 
 # commands from main widget ###################################################
@@ -217,6 +217,7 @@ class ModifyStarsWidget(interface.ListWidget):
 
    def clear(self):
       self.set_list(self.manager["db"].get_stars())
+      self.sort_by(lambda s: s.get_name().lower())
 
 class ModifyTagsWidget(interface.ListWidget):
    def __init__(self, name):
@@ -240,6 +241,7 @@ class ModifyTagsWidget(interface.ListWidget):
 
    def clear(self):
       self.set_list(self.manager["db"].get_tags())
+      self.sort_by(lambda t: t.get_name().lower())
 
 class ModifyMovieQuery(interface.WrapperLayout, QuerySession):
    def __init__(self, name, widget):
@@ -308,9 +310,37 @@ class SelectorWidget(interface.FancyListWidget):
       return True
 
 class PreviewWidget(interface.ImageWidget):
+   def __init__(self, name):
+      super().__init__(name)
+      self.movie = None
+
    def init(self):
       pass
       # self.set_image("/home/erik/Pictures/PFUDOR_2.jpg")
+
+   def preview(self, movie):
+      if self.movie == movie:
+         return
+      self.movie = movie
+      thumb = "ffmpegthumbnailer"
+      if not shutil.which(thumb):
+         return
+
+      cachename, _ = os.path.splitext(os.path.join(self.manager["cd"], self.movie.get_path()))
+      cachename += ".jpg"
+
+      if not os.path.isfile(cachename):
+         P.run([
+            thumb,
+            "-i",
+            # TODO: can vary, fix somehow
+            os.path.join(self.manager["ad"], self.movie.get_path()),
+            "-o",
+            cachename,
+            "-s", "0"
+         ])
+
+      self.set_image(cachename)
 
 class MyInputWidget(interface.InputWidget, QuerySession):
    def __init__(self, name):
@@ -345,10 +375,11 @@ def update_stats(man):
    sel = man.get_widget("MAIN")
    if sel.get_selected():
       man.get_widget("videoStats").set_movie(sel.get_selected())
+      man.get_widget("img").preview(sel.get_selected())
 
 # main ########################################################################
 
-def start(dbfile, archivedir, bufferdir, inspectdir):
+def start(dbfile, archivedir, bufferdir, inspectdir, cachedir):
    l = GlobalBindings(
       "globals",
       interface.PopupLayout(
@@ -439,6 +470,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir):
    man["id"] = inspectdir
    man["ad"] = archivedir
    man["bd"] = bufferdir
+   man["cd"] = cachedir
 
    man.start()
    man["db"].close()
