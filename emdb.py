@@ -249,6 +249,12 @@ class FuzzyFindList(interface.SplitLayout):
             return False
          return True
 
+      def draw(self, win):
+         if not self.is_focused:
+            self.manager.push_attr_override("input_cursor", 0)
+         super().draw(win)
+         self.manager.pop_attr_override("input_cursor")
+
    class FuzzyList(interface.ListWidget):
       pass
 
@@ -546,6 +552,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir):
       man.add_color("list_highlight", 1)
       man.add_color("stats_key", 3)
       man.add_color("stats_starred", 4)
+      man.add_attr("input_cursor", interface.curses.A_REVERSE)
       man.on_any_event(global_key_help_hook)
       man.on_any_event(update_stats)
       man["id"] = inspectdir

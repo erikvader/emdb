@@ -421,7 +421,7 @@ class InputWidget(Widget):
             break
          ice(win.addch, 0, x, c)
          x += 1
-      ice(win.chgat, 0, self.cursor, 1, curses.A_REVERSE)
+      ice(win.chgat, 0, self.cursor, 1, self.manager.get_attr("input_cursor"))
 
 class ListWidget(Widget):
    def __init__(self, name):
@@ -835,6 +835,7 @@ class Manager():
    def __init__(self, layout):
       self.running = True
       self.attr_names = {"0": 0}
+      self.attr_override = []
       self.layout = layout
       self.widgets = {}
       self.delayed_draw_queue = []
@@ -894,7 +895,19 @@ class Manager():
       self.attr_names[name] = attr
 
    def get_attr(self, name):
+      for o in reversed(self.attr_override):
+         if name == o[0]:
+            return o[1]
       return self.attr_names.get(name, 0)
+
+   def push_attr_override(self, name, attr):
+      self.attr_override.append((name, attr))
+
+   def pop_attr_override(self, name=None):
+      if self.attr_override:
+         if name and name != self.attr_override[-1][0]:
+            return
+         self.attr_override.pop()
 
    def map_focused(self, f, *args, top_down=True, **kwargs):
       self.current_focus.map_focused(f, *args, top_down=top_down, **kwargs)
