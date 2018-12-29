@@ -67,11 +67,15 @@ class StringFormatter():
          x -= 1
 
    @staticmethod
+   def calc_centered_pos(string_len, win_len):
+      return max(0, (win_len - string_len) // 2)
+
+   @staticmethod
    def draw(win, x, y, stringorlist, manager, centered=False, wrap=False, dots=False):
       _, w = win.getmaxyx()
       if centered:
          lenn, parsed = StringFormatter.parse_and_len(stringorlist, manager)
-         x = max(x, (w - lenn) // 2)
+         x = StringFormatter.calc_centered_pos(lenn, w)
       else:
          parsed = StringFormatter._parse(stringorlist, manager)
       return StringFormatter.draw_parsed(win, x, y, parsed, wrap=wrap, dots=dots)
@@ -799,13 +803,13 @@ class BorderWrapperLayout(Layout):
             ice(win.vline, 0, 0, curses.ACS_VLINE, self.h)
          if 'r' in self.edges:
             ice(win.vline, 0, self.w - 1, curses.ACS_VLINE, self.h)
-         if 'l' in self.edges and 't' in self.edges:
+         if 'l' in self.edges and 't' in self.edges or '1' in self.edges:
             ice(win.addch, 0, 0, curses.ACS_ULCORNER)
-         if 'l' in self.edges and 'b' in self.edges:
+         if 'l' in self.edges and 'b' in self.edges or '3' in self.edges:
             ice(win.addch, self.h - 1, 0, curses.ACS_LLCORNER)
-         if 'r' in self.edges and 't' in self.edges:
+         if 'r' in self.edges and 't' in self.edges or '2' in self.edges:
             ice(win.addch, 0, self.w - 1, curses.ACS_URCORNER)
-         if 'r' in self.edges and 'b' in self.edges:
+         if 'r' in self.edges and 'b' in self.edges or '4' in self.edges:
             ice(win.addch, self.h - 1, self.w - 1, curses.ACS_LRCORNER)
       super()._draw()
 

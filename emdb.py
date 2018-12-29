@@ -155,6 +155,7 @@ class KeyHelpWidget(interface.Widget):
       super().__init__(name)
       self.key_helps = {}
       self.value = []
+      self.value_len = 0
 
    def set_cur_keys(self, keys):
       self.key_helps = keys
@@ -162,25 +163,24 @@ class KeyHelpWidget(interface.Widget):
       self.touch()
 
    def _generate_help_string(self):
-      self.value = []
+      formstr = []
 
       for k,v in self.key_helps.items():
-         self.value.extend(["${key_highlight}", k, ":$0 ", v, ", "])
-      del self.value[-1]
+         formstr.extend(["${key_highlight}", k, ":$0 ", v, ", "])
+      del formstr[-1]
 
-      lenn, parsed = interface.StringFormatter.parse_and_len(self.value, self.manager)
+      self.value_len, self.value = interface.StringFormatter.parse_and_len(formstr, self.manager)
 
-      if lenn <= self.w:
-         self.value = parsed
-      else:
-         self.value = [", " if i % 5 == 2 else x for i,x in enumerate(self.value) if i % 5 <= 2]
-         del self.value[-1]
-         _, self.value = interface.StringFormatter.parse_and_len(self.value, self.manager)
+      if self.value_len > self.w:
+         formstr = [", " if i % 5 == 2 else x for i,x in enumerate(formstr) if i % 5 <= 2]
+         del formstr[-1]
+         self.value_len, self.value = interface.StringFormatter.parse_and_len(formstr, self.manager)
 
    def draw(self, win):
       if self.resized:
          win.erase()
-      interface.StringFormatter.draw_parsed(win, 0, 0, self.value, dots=True)
+      x = interface.StringFormatter.calc_centered_pos(self.value_len, self.w)
+      interface.StringFormatter.draw_parsed(win, x, 0, self.value, dots=True)
 
 class TitleWidget(interface.Widget):
    def __init__(self, name):
@@ -189,12 +189,10 @@ class TitleWidget(interface.Widget):
 
    def set_title(self, title):
       self.value = title
-      self.resized = True # haxx to force draw to clear
       self.touch()
 
    def draw(self, win):
-      if self.resized:
-         win.erase()
+      win.erase()
       self.format_draw(win, 0, 0, self.value, centered=True)
 
 class ModifyStarsWidget(interface.ListWidget):
@@ -357,29 +355,33 @@ def start(dbfile, archivedir, bufferdir, inspectdir):
          "inputPopup",
          interface.PopupLayout(
             "modifyMoviePopup",
-            interface.ConstraintLayout(
-               interface.BorderWrapperLayout(
-                  "lrt",
-                  interface.SplitLayout(
-                     "mainLayout",
-                     interface.SplitLayout.Alignment.VERTICAL,
+            interface.SplitLayout(
+               "keyMainLayout",
+               interface.SplitLayout.Alignment.VERTICAL,
+               interface.ConstraintLayout(
+                  interface.BorderWrapperLayout(
+                     "lrt34",
                      interface.SplitLayout(
-                        "mainMiddleLayout",
-                        interface.SplitLayout.Alignment.HORIZONTAL,
-                        SelectorWidget("MAIN"), 0.3,
+                        "mainLayout",
+                        interface.SplitLayout.Alignment.VERTICAL,
+                        interface.SplitLayout(
+                           "mainMiddleLayout",
+                           interface.SplitLayout.Alignment.HORIZONTAL,
+                           SelectorWidget("MAIN"), 0.3,
+                           interface.BorderWrapperLayout(
+                              "l",
+                              PreviewWidget("img")
+                           ), 0.0
+                        ), 0.0,
                         interface.BorderWrapperLayout(
-                           "l",
-                           PreviewWidget("img")
-                        ), 0.0
-                     ), 0.0,
-                     interface.BorderWrapperLayout(
-                        "tb",
-                        StatsWidget("videoStats")
-                     ), 6,
-                     KeyHelpWidget("keyHelp"), 1
-                  )
-               ),
-               maxw=120
+                           "tb",
+                           StatsWidget("videoStats")
+                        ), 6
+                     )
+                  ),
+                  maxw=120
+               ), 0.0,
+               KeyHelpWidget("keyHelp"), 1
             ),
             interface.ConstraintLayout(
                interface.BorderWrapperLayout(
