@@ -536,26 +536,25 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir):
       )
    )
 
-   man = interface.Manager(l)
-   man.init_color(1, interface.curses.COLOR_RED, -1)
-   man.init_color(2, interface.curses.COLOR_BLUE, -1)
-   man.init_color(3, interface.curses.COLOR_MAGENTA, -1)
-   man.init_color(4, interface.curses.COLOR_YELLOW, -1)
-   man.add_color("key_highlight", 2)
-   man.add_color("fancy_list_arrow", 1)
-   man.add_color("list_highlight", 1)
-   man.add_color("stats_key", 3)
-   man.add_color("stats_starred", 4)
-   man.on_any_event(global_key_help_hook)
-   man.on_any_event(update_stats)
+   with interface.Manager(l) as man:
+      man.init_color(1, interface.curses.COLOR_RED, -1)
+      man.init_color(2, interface.curses.COLOR_BLUE, -1)
+      man.init_color(3, interface.curses.COLOR_MAGENTA, -1)
+      man.init_color(4, interface.curses.COLOR_YELLOW, -1)
+      man.add_color("key_highlight", 2)
+      man.add_color("fancy_list_arrow", 1)
+      man.add_color("list_highlight", 1)
+      man.add_color("stats_key", 3)
+      man.add_color("stats_starred", 4)
+      man.on_any_event(global_key_help_hook)
+      man.on_any_event(update_stats)
+      man["id"] = inspectdir
+      man["ad"] = archivedir
+      man["bd"] = bufferdir
+      man["cd"] = cachedir
 
-   db = database.Database(dbfile)
-   man["db"] = db
-   man["id"] = inspectdir
-   man["ad"] = archivedir
-   man["bd"] = bufferdir
-   man["cd"] = cachedir
-
-   man.start()
-   man["db"].close()
+      from contextlib import closing
+      with closing(database.Database(dbfile)) as db:
+         man["db"] = db
+         man.start()
 

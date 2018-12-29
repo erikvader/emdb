@@ -31,7 +31,7 @@ class StringFormatter():
                pass
             elif c == '}':
                escon = False
-               yield manager.get_color(word)
+               yield manager.get_attr(word)
             elif c == '0':
                yield 0
                escon = False
@@ -572,7 +572,7 @@ class ListWidget(Widget):
          if l + self._list_top == self.selected:
             attr = curses.A_REVERSE
          if i in self.highlighted:
-            attr |= self.manager.get_color("list_highlight")
+            attr |= self.manager.get_attr("list_highlight")
          ice(win.chgat, l, 0, attr)
 
 class FancyListWidget(ListWidget):
@@ -580,7 +580,7 @@ class FancyListWidget(ListWidget):
       win.erase()
       mid = int(self.h / 2)
 
-      win.addstr(mid, 0, "-> ", self.manager.get_color("fancy_list_arrow"))
+      win.addstr(mid, 0, "-> ", self.manager.get_attr("fancy_list_arrow"))
 
       todraw = self._index_list
       if not todraw:
@@ -593,7 +593,7 @@ class FancyListWidget(ListWidget):
          for l,item in ran:
             self.format_draw(win, startx, l, self._str_of(item, linewidth), dots=True)
             if item in self.highlighted:
-               ice(win.chgat, l, startx, self.manager.get_color("list_highlight"))
+               ice(win.chgat, l, startx, self.manager.get_attr("list_highlight"))
 
       draw_these(zip(range(mid, self.h), todraw[self.selected:]))
       draw_these(zip(reversed(range(0, mid)), reversed(todraw[:self.selected])))
@@ -834,14 +834,14 @@ class BorderWrapperLayout(Layout):
 class Manager():
    def __init__(self, layout):
       self.running = True
-      self.init_colors = []
-      self.color_names = {"0": 0}
+      self.attr_names = {"0": 0}
       self.layout = layout
       self.widgets = {}
       self.delayed_draw_queue = []
       self.global_hook = []
       self.current_focus = None
       self.global_vars = {}
+      self.stdscr = None
 
    def __getitem__(self, key):
       return self.global_vars[key]
@@ -851,6 +851,27 @@ class Manager():
 
    def __delitem__(self, key):
       del self.global_vars[key]
+
+   def __enter__(self):
+      os.environ.setdefault('ESCDELAY', '0')
+      self.stdscr = curses.initscr()
+      curses.noecho()
+      curses.cbreak()
+      self.stdscr.keypad(1)
+      try:
+         curses.start_color()
+         curses.use_default_colors()
+      except:
+         pass
+      return self
+
+   def __exit__(self, _exc_type, _exc_value, _traceback):
+      if self.stdscr:
+         self.stdscr.keypad(0)
+         curses.echo()
+         curses.nocbreak()
+         curses.endwin()
+      return False
 
    def on_any_event(self, f):
       self.global_hook.append(f)
@@ -864,24 +885,22 @@ class Manager():
       return self.widgets[name]
 
    def init_color(self, index, fg, bg):
-      self.init_colors.append((index, fg, bg))
+      curses.init_pair(index, fg, bg)
 
    def add_color(self, name, index):
-      self.color_names[name] = index
+      self.add_attr(name, curses.color_pair(index))
 
-   def get_color(self, name):
-      cup = self.color_names.get(name, 0)
-      if cup != 0:
-         return curses.color_pair(cup)
-      else:
-         return 0
+   def add_attr(self, name, attr):
+      self.attr_names[name] = attr
+
+   def get_attr(self, name):
+      return self.attr_names.get(name, 0)
 
    def map_focused(self, f, *args, top_down=True, **kwargs):
       self.current_focus.map_focused(f, *args, top_down=top_down, **kwargs)
 
    def start(self):
-      os.environ.setdefault('ESCDELAY', '0')
-      curses.wrapper(self._main_fun)
+      self._main_fun(self.stdscr)
 
    def stop(self):
       self.running = False
@@ -889,10 +908,6 @@ class Manager():
    def _main_fun(self, stdscr):
       curses.curs_set(False)
       stdscr.immedok(False)
-      curses.use_default_colors()
-
-      for ic in self.init_colors:
-         curses.init_pair(*ic)
 
       maxy, maxx = stdscr.getmaxyx()
       self.layout._init(0, 0, maxx, maxy, self, None)
