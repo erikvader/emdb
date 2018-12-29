@@ -294,10 +294,10 @@ class Movie:
          return self.get_id() == other.get_id()
       return False
 
-class Star():
-   def __init__(self, star_dict):
-      self.name = star_dict["name"]
-      self.id = star_dict["id"]
+class _TagStar():
+   def __init__(self, tagstar_dict):
+      self.name = tagstar_dict["name"]
+      self.id = tagstar_dict["id"]
 
    def get_id(self):
       return self.id
@@ -308,17 +308,13 @@ class Star():
    def __str__(self):
       return self.get_name()
 
-class Tag():
-   def __init__(self, tag_dict):
-      self.name = tag_dict["name"]
-      self.id = tag_dict["id"]
-      self.subsetof = tag_dict["subsetof"]
+   def __eq__(self, other):
+      if isinstance(other, type(self)):
+         return self.get_id() == other.get_id()
+      return False
 
-   def get_id(self):
-      return self.id
+class Tag(_TagStar):
+   pass
 
-   def get_name(self):
-      return self.name
-
-   def __str__(self):
-      return self.get_name()
+class Star(_TagStar):
+   pass

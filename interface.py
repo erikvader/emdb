@@ -387,6 +387,7 @@ class InputWidget(Widget):
       if ca.isalnum(key) or key == ord(' '):
          self.value.insert(self._offset + self.cursor, chr(key))
          self.cursor += 1
+         self.changed()
       elif key == curses.KEY_LEFT:
          if self.cursor + self._offset > 0:
             self.cursor -= 1
@@ -397,10 +398,14 @@ class InputWidget(Widget):
          if self.cursor + self._offset > 0:
             del self.value[self.cursor-1]
             self.cursor -= 1
+            self.changed()
       else:
          return False
       self.touch()
       return True
+
+   def changed(self):
+      pass
 
    def draw(self, win):
       win.erase()
@@ -428,7 +433,9 @@ class ListWidget(Widget):
       self._index_list = []
       self._list_top = 0
       self._last_filter_fun = lambda _: True
-      self._last_sort_fun = lambda x: x.get_id()
+
+      from functools import cmp_to_key
+      self._last_sort_fun = lambda x: x if hasattr(x, "__le__") else cmp_to_key(lambda a,b: True)
 
    def _select(self, index):
       if not self.list:
@@ -468,6 +475,10 @@ class ListWidget(Widget):
 
    def clear_highlighted(self):
       self.highlighted.clear()
+
+   def highlight_by(self, pred):
+      self.highlighted = {i for i,x in enumerate(self.list) if pred(x)}
+      self.touch()
 
    def set_list(self, l):
       self.list = l

@@ -56,6 +56,28 @@ def start_inspection(man):
    man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
    man.get_widget("modifyTitle").set_title(randChoice)
 
+def modify_selected(man, sel):
+   if not sel:
+      return
+   filename = sel.get_path()
+
+   def err(manager):
+      manager.get_widget("MAIN").focus()
+
+   def succ(manager):
+      stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
+      tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
+      sel.set_stars(stars)
+      sel.set_tags(tags)
+
+      manager.get_widget("videoStats").update()
+      manager.get_widget("MAIN").focus()
+
+   man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
+   man.get_widget("modifyTitle").set_title(filename)
+   man.get_widget("modifyMovieStars").highlight_by(lambda x: x in sel.get_stars())
+   man.get_widget("modifyMovieTags").highlight_by(lambda x: x in sel.get_tags())
+
 def add_star(man):
    def err(manager):
       manager.get_widget("MAIN").focus()
@@ -177,8 +199,7 @@ class KeyHelpWidget(interface.Widget):
          self.value_len, self.value = interface.StringFormatter.parse_and_len(formstr, self.manager)
 
    def draw(self, win):
-      if self.resized:
-         win.erase()
+      win.erase()
       x = interface.StringFormatter.calc_centered_pos(self.value_len, self.w)
       interface.StringFormatter.draw_parsed(win, x, 0, self.value, dots=True)
 
@@ -195,14 +216,73 @@ class TitleWidget(interface.Widget):
       win.erase()
       self.format_draw(win, 0, 0, self.value, centered=True)
 
-class ModifyStarsWidget(interface.ListWidget):
+# NOTE: this is not fuzzy lol
+class FuzzyFindList(interface.SplitLayout):
+   class FuzzyInput(interface.InputWidget):
+      def __init__(self, name, fList):
+         super().__init__(name)
+         self.fList = fList
+         self.key_help = {"SPC": "select", "<down>": "next", "<up>": "previous"}
+
+      def changed(self):
+         s = self.get_input()
+         def fuzzy(x):
+            name = x.get_name().lower()
+            return s in name
+
+         sortfun = fuzzy if self.get_input() else lambda x: True
+         self.fList.filter_by(sortfun)
+
+      def key_event(self, key):
+
+         if key != interface.ca.SP:
+            if super().key_event(key):
+               return True
+
+         if key == interface.curses.KEY_DOWN:
+            self.fList.next()
+         elif key == interface.curses.KEY_UP:
+            self.fList.prev()
+         elif key == interface.ca.SP:
+            self.fList.highlight()
+         else:
+            return False
+         return True
+
+   class FuzzyList(interface.ListWidget):
+      pass
+
+   def __init__(self, name):
+      self.fList = self.FuzzyList("{}_fuzzyList".format(name))
+      self.fInput = self.FuzzyInput("{}_fuzzyInput".format(name), self.fList)
+      super().__init__(
+         name,
+         self.Alignment.VERTICAL,
+         interface.BorderWrapperLayout("b", self.fInput), 2,
+         self.fList, 0.0
+      )
+
+   def focus(self):
+      self.fInput.focus()
+
+   def set_list(self, l):
+      self.fInput.clear()
+      self.fList.set_list(l)
+
+   def sort_by(self, pred):
+      self.fList.sort_by(pred)
+
+   def highlight_by(self, pred):
+      self.fList.highlight_by(pred)
+
+   def get_highlighted(self):
+      return self.fList.get_highlighted()
+
+class ModifyStarsWidget(FuzzyFindList):
    def __init__(self, name):
       super().__init__(name)
       self.key_help = {
-         "j/<down>": "move down",
-         "k/<up>": "move up",
-         "space": "select",
-         "TAB": "goto other"
+         "TAB": "goto tags"
       }
 
    def key_event(self, key):
@@ -219,14 +299,11 @@ class ModifyStarsWidget(interface.ListWidget):
       self.set_list(self.manager["db"].get_stars())
       self.sort_by(lambda s: s.get_name().lower())
 
-class ModifyTagsWidget(interface.ListWidget):
+class ModifyTagsWidget(FuzzyFindList):
    def __init__(self, name):
       super().__init__(name)
       self.key_help = {
-         "j/<down>": "move down",
-         "k/<up>": "move up",
-         "space": "select",
-         "TAB": "goto other"
+         "TAB": "goto stars"
       }
 
    def key_event(self, key):
@@ -270,8 +347,6 @@ class GlobalBindings(interface.WrapperLayout):
    def key_event(self, key):
       if key == interface.ca.ESC:
          self.manager.stop()
-      # elif key == interface.ca.TAB:
-      #    self.manager.get_widget("input").focus()
 
 class SelectorWidget(interface.FancyListWidget):
    def __init__(self, name):
@@ -283,7 +358,8 @@ class SelectorWidget(interface.FancyListWidget):
          "i": "inspect new",
          "p": "add star",
          "t": "add tag",
-         "s": "toggle star"
+         "s": "toggle star",
+         "m": "modify"
       }
 
    def init(self):
@@ -305,6 +381,8 @@ class SelectorWidget(interface.FancyListWidget):
          toggle_starred(self.manager, self.get_selected())
       elif key == ord('l') or key == interface.curses.KEY_RIGHT:
          play_selected(self.manager, self.get_selected())
+      elif key == ord('m'):
+         modify_selected(self.manager, self.get_selected())
       else:
          return False
       return True
@@ -420,13 +498,19 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir):
                   interface.SplitLayout(
                      "modifyMovieLayout1",
                      interface.SplitLayout.Alignment.VERTICAL,
-                     TitleWidget("modifyTitle"), 1,
+                     interface.BorderWrapperLayout(
+                        "b",
+                        TitleWidget("modifyTitle")
+                     ), 2,
                      ModifyMovieQuery(
                         "modifyMovieQuery",
                         interface.SplitLayout(
                            "modifyMovieLayout2",
                            interface.SplitLayout.Alignment.HORIZONTAL,
-                           ModifyStarsWidget("modifyMovieStars"), 0.5,
+                           interface.BorderWrapperLayout(
+                              "r",
+                              ModifyStarsWidget("modifyMovieStars")
+                           ), 0.5,
                            ModifyTagsWidget("modifyMovieTags"), 0.0
                         )
                      ), 0.0
