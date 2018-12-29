@@ -78,9 +78,11 @@ class StringFormatter():
 
    @staticmethod
    def draw_parsed(win, x, y, parsed, wrap=False, dots=False):
-      _, w = win.getmaxyx()
+      h, w = win.getmaxyx()
       attr = 0
       for c in parsed:
+         if y >= h:
+            break
          if x >= w:
             if dots:
                StringFormatter._draw_dots(win, x-1, y)

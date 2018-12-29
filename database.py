@@ -237,8 +237,8 @@ class Movie:
       return self.mdict["id"]
 
    def get_added_date(self):
-      # TODO: convert to a python date or something
-      return self.mdict["added_date"]
+      from datetime import datetime
+      return datetime.fromtimestamp(self.mdict["added_date"])
 
    def get_path(self):
       return self.mdict["path"]
@@ -288,6 +288,11 @@ class Movie:
 
    def __repr__(self):
       return "movie: {}, stars: {}, tags: {}".format(self.mdict, self.get_stars(), self.get_tags())
+
+   def __eq__(self, other):
+      if isinstance(other, type(self)):
+         return self.get_id() == other.get_id()
+      return False
 
 class Star():
    def __init__(self, star_dict):

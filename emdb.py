@@ -82,6 +82,17 @@ def add_tag(man):
    man.get_widget("inputTitle").set_title("Add new tag")
    man.get_widget("input").new_session(on_error=err, on_success=succ)
 
+def toggle_starred(man, sel):
+   if not sel:
+      return
+   sel.set_starred(not sel.is_starred())
+   man.get_widget("videoStats").update()
+
+def play_selected(man, sel):
+   if not sel:
+      return
+   play(os.path.join(man["ad"], sel.get_path()))
+
 # widgets #####################################################################
 class QuerySession():
    def __init__(self, manager):
@@ -110,17 +121,33 @@ class StatsWidget(interface.Widget):
       self.movie = None
 
    def set_movie(self, movie):
+      if self.movie == movie:
+         return
       self.movie = movie
+      self.update()
+
+   def update(self):
       self.touch()
       self._generate_string()
 
    def _generate_string(self):
       self.values.clear()
-      self.values.append(self.movie.get_disp())
+      tit = ["${stats_key}", "File: "]
+      if self.movie.is_starred():
+         tit.extend(["${stats_starred}", '*'])
+      tit.extend(["$0", str(self.movie.get_path())])
+      self.values.append(tit)
+      starstr = ", ".join(s.get_name() for s in self.movie.get_stars())
+      self.values.append(["${stats_key}", "Featured: ", "$0", starstr])
+      tagsstr = ", ".join(s.get_name() for s in self.movie.get_tags())
+      self.values.append(["${stats_key}", "Tags: ", "$0", tagsstr])
+      self.values.append(["${stats_key}", "Added: ", "$0", str(self.movie.get_added_date())])
 
    def draw(self, win):
       win.erase()
       for i,v in enumerate(self.values):
+         if i > self.h:
+            break
          self.format_draw(win, 0, i, v)
 
 class KeyHelpWidget(interface.Widget):
@@ -252,9 +279,11 @@ class SelectorWidget(interface.FancyListWidget):
       self.key_help = {
          "j/<down>": "move down",
          "k/<up>": "move up",
+         "l/<right>": "play",
          "i": "inspect new",
          "p": "add star",
-         "t": "add tag"
+         "t": "add tag",
+         "s": "toggle star"
       }
 
    def init(self):
@@ -272,6 +301,10 @@ class SelectorWidget(interface.FancyListWidget):
          add_tag(self.manager)
       elif key == ord('o'):
          self.sort_by(lambda x: x.get_path())
+      elif key == ord('s'):
+         toggle_starred(self.manager, self.get_selected())
+      elif key == ord('l') or key == interface.curses.KEY_RIGHT:
+         play_selected(self.manager, self.get_selected())
       else:
          return False
       return True
@@ -342,7 +375,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir):
                      interface.BorderWrapperLayout(
                         "tb",
                         StatsWidget("videoStats")
-                     ), 0.15,
+                     ), 6,
                      KeyHelpWidget("keyHelp"), 1
                   )
                ),
@@ -389,9 +422,13 @@ def start(dbfile, archivedir, bufferdir, inspectdir):
    man = interface.Manager(l)
    man.init_color(1, interface.curses.COLOR_RED, -1)
    man.init_color(2, interface.curses.COLOR_BLUE, -1)
+   man.init_color(3, interface.curses.COLOR_MAGENTA, -1)
+   man.init_color(4, interface.curses.COLOR_YELLOW, -1)
    man.add_color("key_highlight", 2)
    man.add_color("fancy_list_arrow", 1)
    man.add_color("list_highlight", 1)
+   man.add_color("stats_key", 3)
+   man.add_color("stats_starred", 4)
    man.on_any_event(global_key_help_hook)
    man.on_any_event(update_stats)
 
