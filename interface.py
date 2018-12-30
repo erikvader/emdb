@@ -435,7 +435,7 @@ class ListWidget(Widget):
       self._last_filter_fun = lambda _: True
 
       from functools import cmp_to_key
-      self._last_sort_fun = lambda x: x if hasattr(x, "__le__") else cmp_to_key(lambda a,b: True)
+      self._last_sort_fun = cmp_to_key(lambda a,b: True)
 
    def _select(self, index):
       if not self.list:
@@ -910,7 +910,7 @@ class InfoPopup(PopupLayout):
       )
       self.show_popup()
 
-   def show_question(self, msg, yes_call, no_call):
+   def show_question(self, msg, yes_call=None, no_call=None):
       self.infoWidget.set_yesno(
          msg,
          yes_call if yes_call else lambda man: self._def_pop_callback(man),

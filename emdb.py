@@ -10,6 +10,7 @@ from . import database
 import os
 import subprocess as P
 import shutil
+from collections import deque
 
 # random io ###################################################################
 def move_file (f, src, dest):
@@ -44,21 +45,28 @@ def start_inspection(man):
    randChoice = move_file(randChoice, man["bd"], man["id"])
    play(os.path.join(man["id"], randChoice))
 
-   def err(manager):
-      manager.get_widget("MAIN").focus()
+   def no(man):
+      move_file(randChoice, man["id"], man["td"])
+      man.get_widget("MAIN").focus()
 
-   def succ(manager):
-      newName = move_file(randChoice, man["id"], man["ad"])
-      stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
-      tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
-      newMovie = man["db"].add_movie(newName, "", False, stars, tags)
+   def yes(man):
+      def err(manager):
+         manager.get_widget("MAIN").focus()
 
-      mainWid = manager.get_widget("MAIN")
-      mainWid.add(newMovie)
-      mainWid.focus()
+      def succ(manager):
+         newName = move_file(randChoice, man["id"], man["ad"])
+         stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
+         tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
+         newMovie = man["db"].add_movie(newName, "", False, stars, tags)
 
-   man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
-   man.get_widget("modifyTitle").set_title(randChoice)
+         mainWid = manager.get_widget("MAIN")
+         mainWid.add(newMovie)
+         mainWid.focus()
+
+      man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
+      man.get_widget("modifyTitle").set_title(randChoice)
+
+   man.get_widget("infoPopup").show_question("Want to keep?", yes_call=yes, no_call=no)
 
 def modify_selected(man, sel):
    if not sel:
@@ -379,11 +387,29 @@ class SelectorWidget(interface.FancyListWidget):
          "t": "add tag",
          "s": "toggle star",
          "m": "modify",
-         "y": "copy path"
+         "y": "copy path",
+         "o": "sort"
       }
+      self.sort_functions = deque([
+         lambda a,b: a.get_disp().lower() < b.get_disp().lower(),
+         lambda a,b: a.get_disp().lower() >= b.get_disp().lower(),
+         lambda a,b: int(a.is_starred()) > int(b.is_starred())
+      ])
+
+   def sort_next(self):
+      class Cmp():
+         def __init__(self, m, f):
+            self.f = f
+            self.m = m
+         def __lt__(self, other):
+            return self.f(self.m, other.m)
+
+      self.sort_by(lambda m: Cmp(m, self.sort_functions[0]))
+      self.sort_functions.rotate(-1)
 
    def init(self):
       self.set_list(self.manager["db"].get_movies())
+      self.sort_next()
 
    def key_event(self, key):
       if super().key_event(key):
@@ -396,7 +422,7 @@ class SelectorWidget(interface.FancyListWidget):
       elif key == ord('t'):
          add_tag(self.manager)
       elif key == ord('o'):
-         self.sort_by(lambda x: x.get_path())
+         self.sort_next()
       elif key == ord('s'):
          toggle_starred(self.manager, self.get_selected())
       elif key == ord('l') or key == interface.curses.KEY_RIGHT:
@@ -487,7 +513,7 @@ def update_stats(man):
 
 # main ########################################################################
 
-def start(dbfile, archivedir, bufferdir, inspectdir, cachedir):
+def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
    l = GlobalBindings(
       "globals",
       interface.InfoPopup(
@@ -591,6 +617,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir):
       man["ad"] = archivedir
       man["bd"] = bufferdir
       man["cd"] = cachedir
+      man["td"] = trashdir
 
       from contextlib import closing
       with closing(database.Database(dbfile)) as db:
