@@ -1,5 +1,9 @@
 #!/bin/python
 
+"""
+optional dependenies: pyperclip
+"""
+
 from . import interface
 from . import database
 
@@ -31,8 +35,8 @@ def start_inspection(man):
    allCandidates = os.listdir(man["bd"])
    aclen = len(allCandidates)
    if aclen <= 0:
-      # TODO: show a popup or something instead of crashing
-      raise Exception("tomt")
+      man.get_widget("infoPopup").show_info("No videos in buffer", kind=interface.InfoPopup.ERROR)
+      return
 
    import random
    randChoice = allCandidates[random.randrange(len(allCandidates))]
@@ -114,6 +118,15 @@ def play_selected(man, sel):
    if not sel:
       return
    play(os.path.join(man["ad"], sel.get_path()))
+
+def copy_selected(man, sel):
+   if not sel:
+      return
+   try:
+      from pyperclip import copy
+      copy(sel.get_path())
+   except ModuleNotFoundError:
+      man.get_widget("infoPopup").show_info("Can't find pyperclip", kind=interface.InfoPopup.WARNING)
 
 # widgets #####################################################################
 class QuerySession():
@@ -234,7 +247,6 @@ class FuzzyFindList(interface.SplitLayout):
          self.fList.filter_by(sortfun)
 
       def key_event(self, key):
-
          if key != interface.ca.SP:
             if super().key_event(key):
                return True
@@ -253,7 +265,8 @@ class FuzzyFindList(interface.SplitLayout):
          if not self.is_focused:
             self.manager.push_attr_override("input_cursor", 0)
          super().draw(win)
-         self.manager.pop_attr_override("input_cursor")
+         if not self.is_focused:
+            self.manager.pop_attr_override()
 
    class FuzzyList(interface.ListWidget):
       pass
@@ -365,7 +378,8 @@ class SelectorWidget(interface.FancyListWidget):
          "p": "add star",
          "t": "add tag",
          "s": "toggle star",
-         "m": "modify"
+         "m": "modify",
+         "y": "copy path"
       }
 
    def init(self):
@@ -389,6 +403,8 @@ class SelectorWidget(interface.FancyListWidget):
          play_selected(self.manager, self.get_selected())
       elif key == ord('m'):
          modify_selected(self.manager, self.get_selected())
+      elif key == ord('y'):
+         copy_selected(self.manager, self.get_selected())
       else:
          return False
       return True
@@ -446,12 +462,20 @@ class MyInputWidget(interface.InputWidget, QuerySession):
 # globals #####################################################################
 
 def global_key_help_hook(man):
+   # haxxa in key_help
+   infoPopup = man.get_widget("infoPopup_InfoWidget")
+   if infoPopup.yesno:
+      infoPopup.key_help = {"ESC": "", "y": "yes", "n": "no"}
+   else:
+      infoPopup.key_help = {"ESC": "", "RET/y": "ok"}
+
    keys = {}
    def map_fun(wid, *_, **__):
       if hasattr(wid, "key_help"):
          keys.update(wid.key_help)
 
    man.map_focused(map_fun)
+   keys = {k:v for k,v in keys.items() if v}
    kh = man.get_widget("keyHelp")
    kh.set_cur_keys(keys)
 
@@ -466,79 +490,84 @@ def update_stats(man):
 def start(dbfile, archivedir, bufferdir, inspectdir, cachedir):
    l = GlobalBindings(
       "globals",
-      interface.PopupLayout(
-         "inputPopup",
+      interface.InfoPopup(
+         "infoPopup",
          interface.PopupLayout(
-            "modifyMoviePopup",
-            interface.SplitLayout(
-               "keyMainLayout",
-               interface.SplitLayout.Alignment.VERTICAL,
+            "inputPopup",
+            interface.PopupLayout(
+               "modifyMoviePopup",
+               interface.SplitLayout(
+                  "keyMainLayout",
+                  interface.SplitLayout.Alignment.VERTICAL,
+                  interface.ConstraintLayout(
+                     interface.BorderWrapperLayout(
+                        "lrt34",
+                        interface.SplitLayout(
+                           "mainLayout",
+                           interface.SplitLayout.Alignment.VERTICAL,
+                           interface.SplitLayout(
+                              "mainMiddleLayout",
+                              interface.SplitLayout.Alignment.HORIZONTAL,
+                              SelectorWidget("MAIN"), 0.3,
+                              interface.BorderWrapperLayout(
+                                 "l",
+                                 PreviewWidget("img")
+                              ), 0.0
+                           ), 0.0,
+                           interface.BorderWrapperLayout(
+                              "tb",
+                              StatsWidget("videoStats")
+                           ), 6
+                        )
+                     ),
+                     maxw=120
+                  ), 0.0,
+                  KeyHelpWidget("keyHelp"), 1
+               ),
                interface.ConstraintLayout(
                   interface.BorderWrapperLayout(
-                     "lrt34",
+                     "tblr",
                      interface.SplitLayout(
-                        "mainLayout",
+                        "modifyMovieLayout1",
                         interface.SplitLayout.Alignment.VERTICAL,
-                        interface.SplitLayout(
-                           "mainMiddleLayout",
-                           interface.SplitLayout.Alignment.HORIZONTAL,
-                           SelectorWidget("MAIN"), 0.3,
-                           interface.BorderWrapperLayout(
-                              "l",
-                              PreviewWidget("img")
-                           ), 0.0
-                        ), 0.0,
                         interface.BorderWrapperLayout(
-                           "tb",
-                           StatsWidget("videoStats")
-                        ), 6
+                           "b",
+                           TitleWidget("modifyTitle")
+                        ), 2,
+                        ModifyMovieQuery(
+                           "modifyMovieQuery",
+                           interface.SplitLayout(
+                              "modifyMovieLayout2",
+                              interface.SplitLayout.Alignment.HORIZONTAL,
+                              interface.BorderWrapperLayout(
+                                 "r",
+                                 ModifyStarsWidget("modifyMovieStars")
+                              ), 0.5,
+                              ModifyTagsWidget("modifyMovieTags"), 0.0
+                           )
+                        ), 0.0
                      )
                   ),
-                  maxw=120
-               ), 0.0,
-               KeyHelpWidget("keyHelp"), 1
+                  maxh=10,
+                  maxw=50
+               )
             ),
             interface.ConstraintLayout(
                interface.BorderWrapperLayout(
                   "tblr",
                   interface.SplitLayout(
-                     "modifyMovieLayout1",
+                     "inputLayout1",
                      interface.SplitLayout.Alignment.VERTICAL,
-                     interface.BorderWrapperLayout(
-                        "b",
-                        TitleWidget("modifyTitle")
-                     ), 2,
-                     ModifyMovieQuery(
-                        "modifyMovieQuery",
-                        interface.SplitLayout(
-                           "modifyMovieLayout2",
-                           interface.SplitLayout.Alignment.HORIZONTAL,
-                           interface.BorderWrapperLayout(
-                              "r",
-                              ModifyStarsWidget("modifyMovieStars")
-                           ), 0.5,
-                           ModifyTagsWidget("modifyMovieTags"), 0.0
-                        )
-                     ), 0.0
+                     TitleWidget("inputTitle"), 1,
+                     MyInputWidget("input"), 0.0
                   )
                ),
-               maxh=10,
+               maxh=4,
                maxw=50
             )
          ),
-         interface.ConstraintLayout(
-            interface.BorderWrapperLayout(
-               "tblr",
-               interface.SplitLayout(
-                  "inputLayout1",
-                  interface.SplitLayout.Alignment.VERTICAL,
-                  TitleWidget("inputTitle"), 1,
-                  MyInputWidget("input"), 0.0
-               )
-            ),
-            maxh=4,
-            maxw=50
-         )
+         50,
+         8
       )
    )
 
@@ -553,6 +582,9 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir):
       man.add_color("stats_key", 3)
       man.add_color("stats_starred", 4)
       man.add_attr("input_cursor", interface.curses.A_REVERSE)
+      man.add_color("info_info", 2)
+      man.add_color("info_warning", 4)
+      man.add_color("info_error", 1)
       man.on_any_event(global_key_help_hook)
       man.on_any_event(update_stats)
       man["id"] = inspectdir
