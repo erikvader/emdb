@@ -98,7 +98,7 @@ def add_star(man):
       inp = manager.get_widget("input")
       val = inp.get_input()
       if val:
-         inp.manager["db"].add_star(val)
+         manager["db"].add_star(val)
 
    man.get_widget("inputTitle").set_title("Add new star")
    man.get_widget("input").new_session(on_error=err, on_success=succ)
@@ -111,10 +111,29 @@ def add_tag(man):
       inp = manager.get_widget("input")
       val = inp.get_input()
       if val:
-         inp.manager["db"].add_tag(val)
+         manager["db"].add_tag(val)
 
    man.get_widget("inputTitle").set_title("Add new tag")
    man.get_widget("input").new_session(on_error=err, on_success=succ)
+
+def set_name_selected(man, sel):
+   if not sel:
+      return
+
+   def err(manager):
+      manager.get_widget("MAIN").focus()
+   def succ(manager):
+      inp = manager.get_widget("input")
+      val = inp.get_input()
+      sel.set_name(val)
+      mai = manager.get_widget("MAIN")
+      mai.refresh()
+      mai.focus()
+
+   man.get_widget("inputTitle").set_title("Set name")
+   inp = man.get_widget("input")
+   inp.new_session(on_error=err, on_success=succ)
+   inp.set_initial_input(sel.get_disp())
 
 def toggle_starred(man, sel):
    if not sel:
@@ -369,26 +388,26 @@ class ModifyMovieQuery(interface.WrapperLayout, QuerySession):
 class GlobalBindings(interface.WrapperLayout):
    def __init__(self, name, widget):
       super().__init__(name, widget)
-      self.key_help = {"ESC": "exit"}
+      self.key_help = {"q": "exit"}
 
    def key_event(self, key):
-      if key == interface.ca.ESC:
+      if key == ord('q'):
          self.manager.stop()
 
 class SelectorWidget(interface.FancyListWidget):
    def __init__(self, name):
       super().__init__(name)
       self.key_help = {
-         "j/<down>": "move down",
-         "k/<up>": "move up",
-         "l/<right>": "play",
+         "jkgG": "vim",
+         "l": "play",
          "i": "inspect new",
          "p": "add star",
          "t": "add tag",
          "s": "toggle star",
          "m": "modify",
          "y": "copy path",
-         "o": "sort"
+         "o": "sort",
+         "n": "set name"
       }
       self.sort_functions = deque([
          lambda a,b: a.get_disp().lower() < b.get_disp().lower(),
@@ -404,7 +423,8 @@ class SelectorWidget(interface.FancyListWidget):
          def __lt__(self, other):
             return self.f(self.m, other.m)
 
-      self.sort_by(lambda m: Cmp(m, self.sort_functions[0]))
+      sf = self.sort_functions[0]
+      self.sort_by(lambda m: Cmp(m, sf))
       self.sort_functions.rotate(-1)
 
    def init(self):
@@ -431,6 +451,12 @@ class SelectorWidget(interface.FancyListWidget):
          modify_selected(self.manager, self.get_selected())
       elif key == ord('y'):
          copy_selected(self.manager, self.get_selected())
+      elif key == ord('g'):
+         self.goto_first()
+      elif key == ord('G'):
+         self.goto_last()
+      elif key == ord('n'):
+         set_name_selected(self.manager, self.get_selected())
       else:
          return False
       return True
@@ -444,7 +470,7 @@ class PreviewWidget(interface.ImageWidget):
       pass
       # self.set_image("/home/erik/Pictures/PFUDOR_2.jpg")
 
-   def preview(self, movie):
+   def preview(self, movie, moviedir):
       if self.movie == movie:
          return
       self.movie = movie
@@ -459,8 +485,7 @@ class PreviewWidget(interface.ImageWidget):
          P.run([
             thumb,
             "-i",
-            # TODO: can vary, fix somehow
-            os.path.join(self.manager["ad"], self.movie.get_path()),
+            os.path.join(moviedir, self.movie.get_path()),
             "-o",
             cachename,
             "-s", "0"
@@ -491,9 +516,10 @@ def global_key_help_hook(man):
    # haxxa in key_help
    infoPopup = man.get_widget("infoPopup_InfoWidget")
    if infoPopup.yesno:
-      infoPopup.key_help = {"ESC": "", "y": "yes", "n": "no"}
+      infoPopup.key_help = {"y": "yes", "n": "no"}
    else:
-      infoPopup.key_help = {"ESC": "", "RET/y": "ok"}
+      infoPopup.key_help = {"RET/y": "ok"}
+   infoPopup.key_help.update({k:"" for k in man.get_widget("globals").key_help})
 
    keys = {}
    def map_fun(wid, *_, **__):
@@ -506,10 +532,11 @@ def global_key_help_hook(man):
    kh.set_cur_keys(keys)
 
 def update_stats(man):
+   # TODO: check which one has focus
    sel = man.get_widget("MAIN")
    if sel.get_selected():
       man.get_widget("videoStats").set_movie(sel.get_selected())
-      man.get_widget("img").preview(sel.get_selected())
+      man.get_widget("img").preview(sel.get_selected(), man["ad"])
 
 # main ########################################################################
 

@@ -383,21 +383,48 @@ class InputWidget(Widget):
    def get_input(self):
       return "".join(self.value)
 
+   def set_initial_input(self, initial):
+      self.value = list(initial)
+      self.cursor = min(len(self.value), self.w - 1)
+      self._offset = len(self.value) - self.cursor
+
+   def _fix_single_move(self):
+      if self.cursor >= self.w:
+         self.cursor -= 1
+         self._offset += 1
+      elif self.cursor < 0:
+         self.cursor += 1
+         self._offset -= 1
+
+   def _shift_cursor_to_middle(self):
+      m = self.w // 2
+      to_move = m - self.cursor
+      if to_move < 0:
+         raise Exception("wrong side of the middle, implement later")
+      to_move = min(to_move, self._offset)
+      self._offset -= to_move
+      self.cursor += to_move
+
    def key_event(self, key):
       if ca.isalnum(key) or key == ord(' '):
          self.value.insert(self._offset + self.cursor, chr(key))
          self.cursor += 1
+         self._fix_single_move()
          self.changed()
       elif key == curses.KEY_LEFT:
          if self.cursor + self._offset > 0:
             self.cursor -= 1
+            self._fix_single_move()
       elif key == curses.KEY_RIGHT:
          if self.cursor + self._offset < len(self.value):
             self.cursor += 1
+            self._fix_single_move()
       elif key == ca.BS or key == curses.KEY_BACKSPACE:
          if self.cursor + self._offset > 0:
-            del self.value[self.cursor-1]
+            del self.value[self._offset + self.cursor-1]
             self.cursor -= 1
+            if self.cursor == 0:
+               self._shift_cursor_to_middle()
             self.changed()
       else:
          return False
@@ -409,12 +436,6 @@ class InputWidget(Widget):
 
    def draw(self, win):
       win.erase()
-      if self.cursor >= self.w:
-         self.cursor -= 1
-         self._offset += 1
-      elif self.cursor < 0:
-         self.cursor += 1
-         self._offset -= 1
       x = 0
       for c in self.value[self._offset:]:
          if x > self.w:
@@ -487,9 +508,7 @@ class ListWidget(Widget):
 
    def add(self, a):
       self.list.append(a)
-      self.filter_by(self._last_filter_fun)
-      self.sort_by(self._last_sort_fun)
-      self.touch()
+      self.refresh()
 
    def _remove_index(self, i):
       del self.list[i]
@@ -548,6 +567,11 @@ class ListWidget(Widget):
       else:
          return False
       return True
+
+   def refresh(self):
+      self.filter_by(self._last_filter_fun)
+      self.sort_by(self._last_sort_fun)
+      self.touch()
 
    def _str_of(self, i, width):
       obj = self.list[i]
