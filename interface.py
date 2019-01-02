@@ -10,7 +10,7 @@ import struct
 import sys
 import fcntl
 import termios
-from time import sleep
+from time import sleep, monotonic_ns
 from threading import Thread, Lock
 from collections import deque
 
@@ -149,9 +149,6 @@ class Widget():
 
    def format_draw(self, win, x, y, string, **kwargs):
       return StringFormatter.draw(win, x, y, string, self.manager, **kwargs)
-
-   def post_draw(self):
-      pass
 
    def _key_event(self, key):
       return self.key_event(key)
@@ -640,6 +637,7 @@ class ImageWidget(Widget):
       self.focusable = False
       self.w3mpath = "/usr/lib/w3m/w3mimgdisplay"
       self.w3m = None
+      self.in_idle_queue = False
 
    #pylint: disable=protected-access,arguments-differ
    def _init(self, *args):
@@ -648,10 +646,8 @@ class ImageWidget(Widget):
       self.w3m = S.Popen([self.w3mpath], stdin=S.PIPE, stdout=S.PIPE, universal_newlines=True)
 
    def set_image(self, path):
+      assert(os.path.isfile(path))
       self.path = path
-      im = Image.open(path)
-      self.img_w, self.img_h = im.size
-      im.close()
       self.touch()
 
    def clear_image(self):
@@ -678,12 +674,21 @@ class ImageWidget(Widget):
       return (xpixels // cols), (ypixels // rows)
 
    def draw(self, win):
-      win.erase()
+      # win.erase()
       # TODO: should probably run w3m clear if path is empty
-      if self.path:
-         self.manager.draw_delayed(self)
+      if self.path and not self.in_idle_queue:
+         self.in_idle_queue = True
+         self.manager.start_idle_job(self.post_draw)
 
-   def post_draw(self):
+   def post_draw(self, _man):
+      self.in_idle_queue = False
+      if not self.path:
+         return False
+
+      im = Image.open(self.path)
+      self.img_w, self.img_h = im.size
+      im.close()
+
       aspect = self.img_w / self.img_h
       windoww = self.w * self.cw
       windowh = self.h * self.ch
@@ -707,10 +712,11 @@ class ImageWidget(Widget):
          dh,
          self.path
       )
-      sleep(0.02)
+      # sleep(0.02)
       self.w3m.stdin.write(inp)
       self.w3m.stdin.flush()
       self.w3m.stdout.readline()
+      return False
 
 class PopupLayout(Layout):
    def __init__(self, name, base, popup):
@@ -956,7 +962,6 @@ class Manager():
       self.attr_override = []
       self.layout = layout
       self.widgets = {}
-      self.delayed_draw_queue = []
       self.global_hook = []
       self.current_focus = None
       self.global_vars = {}
@@ -965,6 +970,7 @@ class Manager():
       self.event_lock = Lock()
       self.bg_jobs = []
       self.curses_blocking = True
+      self.idle_jobs = []
 
    def __getitem__(self, key):
       return self.global_vars[key]
@@ -998,9 +1004,6 @@ class Manager():
 
    def on_any_event(self, f):
       self.global_hook.append(f)
-
-   def draw_delayed(self, w):
-      self.delayed_draw_queue.append(w)
 
    def get_widget(self, name):
       if name not in self.widgets:
@@ -1042,6 +1045,9 @@ class Manager():
       t.start()
       self.bg_jobs.append(t)
 
+   def start_idle_job(self, f, *args):
+      self.idle_jobs.append(f)
+
    def start(self):
       self._main_fun(self.stdscr)
 
@@ -1067,12 +1073,10 @@ class Manager():
          cp.update_panels()
          curses.doupdate()
 
-         while self.delayed_draw_queue:
-            self.delayed_draw_queue.pop().post_draw()
-
          self._get_event(stdscr)
 
    def _get_event(self, stdscr):
+      start = monotonic_ns()
       while True:
          self.bg_jobs = [j for j in self.bg_jobs if j.is_alive()]
          with self.event_lock:
@@ -1083,12 +1087,22 @@ class Manager():
             if update:
                break
 
-         if not self.bg_jobs and not self.curses_blocking:
-            stdscr.timeout(-1)
-            self.curses_blocking = True
-         elif self.bg_jobs and self.curses_blocking:
-            stdscr.timeout(50)
-            self.curses_blocking = False
+         if self.idle_jobs and monotonic_ns() - start > 40*1000000:
+            update = False
+            while self.idle_jobs:
+               update |= self.idle_jobs.pop()(self)
+
+            if update:
+               break
+
+         if not self.bg_jobs and not self.idle_jobs:
+            if not self.curses_blocking:
+               stdscr.timeout(-1)
+               self.curses_blocking = True
+         else:
+            if self.curses_blocking:
+               stdscr.timeout(50)
+               self.curses_blocking = False
 
          k = stdscr.getch()
          if k == -1:
@@ -1098,5 +1112,5 @@ class Manager():
             self.layout._resize(0, 0, maxx, maxy)
             break
          else:
-            self.layout._key_event(k)
-            break
+            if self.layout._key_event(k):
+               break

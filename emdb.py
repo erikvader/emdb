@@ -11,6 +11,7 @@ import os
 import subprocess as P
 import shutil
 from collections import deque
+from threading import Semaphore
 
 # random io ###################################################################
 def move_file (f, src, dest):
@@ -394,6 +395,8 @@ class GlobalBindings(interface.WrapperLayout):
    def key_event(self, key):
       if key == ord('q'):
          self.manager.stop()
+         return True
+      return False
 
 class SelectorWidget(interface.FancyListWidget):
    def __init__(self, name):
@@ -467,6 +470,7 @@ class PreviewWidget(interface.ImageWidget):
       super().__init__(name)
       self.movie = None
       self.intended_path = ""
+      self.thumbnailer_sem = Semaphore(5)
 
    def init(self):
       pass
@@ -476,25 +480,36 @@ class PreviewWidget(interface.ImageWidget):
       if self.movie == movie:
          return
       self.movie = movie
-      thumb = "ffmpegthumbnailer"
-      if not shutil.which(thumb):
-         return
 
-      cachename, _ = os.path.splitext(os.path.join(self.manager["cd"], self.movie.get_path()))
-      cachename += ".jpg"
+      from hashlib import md5
+      m = md5()
+      m.update(self.manager["cd"].encode())
+      m.update(self.movie.get_path().encode())
+      cachename = m.hexdigest() + ".jpg"
+      cachename = os.path.join(self.manager["cd"], cachename)
 
       self.intended_path = cachename
 
       if not os.path.isfile(cachename):
          self.clear_image()
-         def generate_thumb(lock, queue):
+         self._start_thumbnailer(os.path.join(moviedir, self.movie.get_path()), cachename)
+      else:
+         self.set_image(cachename)
+
+   def _start_thumbnailer(self, infile, outfile):
+      thumb = "ffmpegthumbnailer"
+      if not shutil.which(thumb):
+         return
+
+      def generate_thumb(lock, queue):
+         with self.thumbnailer_sem:
             P.run(
                [
                   thumb,
                   "-i",
-                  os.path.join(moviedir, self.movie.get_path()),
+                  infile,
                   "-o",
-                  cachename,
+                  outfile,
                   "-s", "0"
                ],
                stdin=P.DEVNULL,
@@ -502,17 +517,15 @@ class PreviewWidget(interface.ImageWidget):
                stderr=P.DEVNULL
             )
             def callback(_man):
-               if self.intended_path == cachename:
-                  self.set_image(cachename)
+               if self.intended_path == outfile:
+                  self.set_image(outfile)
                   return True
                return False
 
             with lock:
                queue.append(callback)
 
-         self.manager.start_bg_job(generate_thumb)
-      else:
-         self.set_image(cachename)
+      self.manager.start_bg_job(generate_thumb)
 
 class MyInputWidget(interface.InputWidget, QuerySession):
    def __init__(self, name):
