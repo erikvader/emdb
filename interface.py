@@ -162,6 +162,9 @@ class Widget():
    def touch(self):
       self.redraw = True
 
+   def untouch(self):
+      self.redraw = False
+
    def _resize(self, stdx, stdy, stdw, stdh):
       if self.panel:
          self.panel.window().resize(stdh, stdw)
@@ -676,6 +679,7 @@ class ImageWidget(Widget):
 
    def draw(self, win):
       win.erase()
+      # TODO: should probably run w3m clear if path is empty
       if self.path:
          self.manager.draw_delayed(self)
 
@@ -1028,6 +1032,9 @@ class Manager():
 
    def map_focused(self, f, *args, top_down=True, **kwargs):
       self.current_focus.map_focused(f, *args, top_down=top_down, **kwargs)
+
+   def get_focused(self):
+      return self.current_focus
 
    def start_bg_job(self, f, *args):
       fixed_args = (self.event_lock, self.event_queue)

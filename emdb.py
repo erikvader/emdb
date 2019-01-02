@@ -558,6 +558,14 @@ def update_stats(man):
       man.get_widget("videoStats").set_movie(sel.get_selected())
       man.get_widget("img").preview(sel.get_selected(), man["ad"])
 
+def popup_fix(man):
+   def check(wid, *_, **__):
+      if isinstance(wid, interface.PopupLayout):
+         if wid.is_popupped():
+            man.get_widget("img").untouch()
+
+   man.map_focused(check)
+
 # main ########################################################################
 
 def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
@@ -660,6 +668,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
       man.add_color("info_error", 1)
       man.on_any_event(global_key_help_hook)
       man.on_any_event(update_stats)
+      man.on_any_event(popup_fix)
       man["id"] = inspectdir
       man["ad"] = archivedir
       man["bd"] = bufferdir
