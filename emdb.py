@@ -314,6 +314,7 @@ class FuzzyFindList(interface.SplitLayout):
    def set_list(self, l):
       self.fInput.clear()
       self.fList.set_list(l)
+      self.fList.goto_first()
 
    def sort_by(self, pred):
       self.fList.sort_by(pred)
@@ -629,7 +630,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
                         ), 0.0
                      )
                   ),
-                  maxh=10,
+                  maxh=15,
                   maxw=50
                )
             ),
