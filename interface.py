@@ -11,6 +11,8 @@ import sys
 import fcntl
 import termios
 from time import sleep
+from threading import Thread, Lock
+from collections import deque
 
 # Ignore Curses Error
 def ice(f, *args):
@@ -955,6 +957,10 @@ class Manager():
       self.current_focus = None
       self.global_vars = {}
       self.stdscr = None
+      self.event_queue = deque()
+      self.event_lock = Lock()
+      self.bg_jobs = []
+      self.curses_blocking = True
 
    def __getitem__(self, key):
       return self.global_vars[key]
@@ -970,7 +976,7 @@ class Manager():
       self.stdscr = curses.initscr()
       curses.noecho()
       curses.cbreak()
-      self.stdscr.keypad(1)
+      self.stdscr.keypad(True)
       try:
          curses.start_color()
          curses.use_default_colors()
@@ -1023,6 +1029,12 @@ class Manager():
    def map_focused(self, f, *args, top_down=True, **kwargs):
       self.current_focus.map_focused(f, *args, top_down=top_down, **kwargs)
 
+   def start_bg_job(self, f, *args):
+      fixed_args = (self.event_lock, self.event_queue)
+      t = Thread(daemon=True, target=f, args=(*fixed_args, *args))
+      t.start()
+      self.bg_jobs.append(t)
+
    def start(self):
       self._main_fun(self.stdscr)
 
@@ -1049,11 +1061,35 @@ class Manager():
          curses.doupdate()
 
          while self.delayed_draw_queue:
-            self.delayed_draw_queue.pop(0).post_draw()
+            self.delayed_draw_queue.pop().post_draw()
+
+         self._get_event(stdscr)
+
+   def _get_event(self, stdscr):
+      while True:
+         self.bg_jobs = [j for j in self.bg_jobs if j.is_alive()]
+         with self.event_lock:
+            update = False
+            while self.event_queue:
+               update |= self.event_queue.pop()(self)
+
+            if update:
+               break
+
+         if not self.bg_jobs and not self.curses_blocking:
+            stdscr.timeout(-1)
+            self.curses_blocking = True
+         elif self.bg_jobs and self.curses_blocking:
+            stdscr.timeout(50)
+            self.curses_blocking = False
 
          k = stdscr.getch()
-         if k == curses.KEY_RESIZE:
+         if k == -1:
+            continue
+         elif k == curses.KEY_RESIZE:
             maxy, maxx = stdscr.getmaxyx()
             self.layout._resize(0, 0, maxx, maxy)
+            break
          else:
             self.layout._key_event(k)
+            break

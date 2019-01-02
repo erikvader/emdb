@@ -465,6 +465,7 @@ class PreviewWidget(interface.ImageWidget):
    def __init__(self, name):
       super().__init__(name)
       self.movie = None
+      self.intended_path = ""
 
    def init(self):
       pass
@@ -481,17 +482,36 @@ class PreviewWidget(interface.ImageWidget):
       cachename, _ = os.path.splitext(os.path.join(self.manager["cd"], self.movie.get_path()))
       cachename += ".jpg"
 
-      if not os.path.isfile(cachename):
-         P.run([
-            thumb,
-            "-i",
-            os.path.join(moviedir, self.movie.get_path()),
-            "-o",
-            cachename,
-            "-s", "0"
-         ])
+      self.intended_path = cachename
 
-      self.set_image(cachename)
+      if not os.path.isfile(cachename):
+         self.clear_image()
+         def generate_thumb(lock, queue):
+            P.run(
+               [
+                  thumb,
+                  "-i",
+                  os.path.join(moviedir, self.movie.get_path()),
+                  "-o",
+                  cachename,
+                  "-s", "0"
+               ],
+               stdin=P.DEVNULL,
+               stdout=P.DEVNULL,
+               stderr=P.DEVNULL
+            )
+            def callback(_man):
+               if self.intended_path == cachename:
+                  self.set_image(cachename)
+                  return True
+               return False
+
+            with lock:
+               queue.append(callback)
+
+         self.manager.start_bg_job(generate_thumb)
+      else:
+         self.set_image(cachename)
 
 class MyInputWidget(interface.InputWidget, QuerySession):
    def __init__(self, name):
