@@ -1082,7 +1082,7 @@ class Manager():
          with self.event_lock:
             update = False
             while self.event_queue:
-               update |= self.event_queue.pop()(self)
+               update |= self.event_queue.popleft()(self)
 
             if update:
                break

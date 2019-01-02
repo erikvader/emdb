@@ -11,7 +11,8 @@ import os
 import subprocess as P
 import shutil
 from collections import deque
-from threading import Semaphore
+from threading import Semaphore, Lock
+from functools import partial
 
 # random io ###################################################################
 def move_file (f, src, dest):
@@ -470,11 +471,10 @@ class PreviewWidget(interface.ImageWidget):
       super().__init__(name)
       self.movie = None
       self.intended_path = ""
-      self.thumbnailer_sem = Semaphore(5)
-
-   def init(self):
-      pass
-      # self.set_image("/home/erik/Pictures/PFUDOR_2.jpg")
+      self.thumbnailer_sem = Semaphore(2)
+      self.thumb_queue_lock = Lock()
+      self.thumb_queue = deque(maxlen=4)
+      self.thumb = "ffmpegthumbnailer"
 
    def preview(self, movie, moviedir):
       if self.movie == movie:
@@ -497,35 +497,45 @@ class PreviewWidget(interface.ImageWidget):
          self.set_image(cachename)
 
    def _start_thumbnailer(self, infile, outfile):
-      thumb = "ffmpegthumbnailer"
-      if not shutil.which(thumb):
+      if not shutil.which(self.thumb):
          return
 
-      def generate_thumb(lock, queue):
-         with self.thumbnailer_sem:
+      with self.thumb_queue_lock:
+         self.thumb_queue.append((infile, outfile))
+
+         if self.thumbnailer_sem.acquire(blocking=False):
+            self.manager.start_bg_job(self._thumbnailer_thread)
+
+   def _thumbnailer_thread(self, lock, queue):
+      try:
+         while True:
+            with self.thumb_queue_lock:
+               if not self.thumb_queue:
+                  break
+               inf, outf = self.thumb_queue.pop()
             P.run(
                [
-                  thumb,
+                  self.thumb,
                   "-i",
-                  infile,
+                  inf,
                   "-o",
-                  outfile,
+                  outf,
                   "-s", "0"
                ],
                stdin=P.DEVNULL,
                stdout=P.DEVNULL,
                stderr=P.DEVNULL
             )
-            def callback(_man):
+            def callback(outfile, _man):
                if self.intended_path == outfile:
                   self.set_image(outfile)
                   return True
                return False
 
             with lock:
-               queue.append(callback)
-
-      self.manager.start_bg_job(generate_thumb)
+               queue.append(partial(callback, outf))
+      finally:
+         self.thumbnailer_sem.release()
 
 class MyInputWidget(interface.InputWidget, QuerySession):
    def __init__(self, name):
