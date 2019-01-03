@@ -1,6 +1,13 @@
 
 import sqlite3 as S
 from contextlib import contextmanager, closing
+import re
+from collections import deque
+
+def _glob_to_regex(glob):
+   reg = re.escape(glob)
+   reg = re.sub(r"\\\*", r".*?", reg)
+   return re.compile(reg)
 
 class Database:
 
@@ -299,6 +306,10 @@ class Movie:
       self.mdict["name"] = name
       self.db.set_name_for(self.get_id(), name)
 
+   def has_tag(self, glob):
+      r = _glob_to_regex(glob)
+      return any(r.match(t.get_name()) for t in self.get_tags())
+
    def __str__(self):
       return self.get_disp()
 
@@ -334,3 +345,99 @@ class Tag(_TagStar):
 
 class Star(_TagStar):
    pass
+
+class Search():
+   def __init__(self, string):
+      self.ast = None
+      self.keywords = {"(", ")", "t", 0, "or", "and"}
+      self.tokens = deque(Search._tokenize(string))
+
+      acc = []
+      self._search_string(acc)
+      self.ast = compile("".join(acc), "<string>", "eval")
+
+   @staticmethod
+   def _tokenize(string):
+      seps = {" ", "(", ")"}
+      word = []
+      for c in string:
+         if c in seps:
+            if word:
+               yield "".join(word)
+               word.clear()
+            yield c
+         else:
+            word.append(c)
+      if word:
+         yield "".join(word)
+      yield 0
+
+   def _spaces(self, acc, throw=False):
+      while True:
+         n = self.tokens.popleft()
+         if n == " ":
+            if not throw:
+               acc.append(n)
+         else:
+            self.tokens.appendleft(n)
+            break
+
+   def _rstrip(self, acc):
+      while acc and acc[-1] == " ":
+         acc.pop()
+
+   def _search_string(self, acc):
+      self._expression(acc)
+      n = self.tokens.popleft()
+      if n != 0:
+         raise Exception("not everything was read")
+
+   def _expression(self, acc):
+      while True:
+         self._spaces(acc, throw=True)
+         self._booly(acc)
+         n = self.tokens.popleft()
+         if n == "or" or n == "and":
+            acc.append(" ")
+            acc.append(n)
+            acc.append(" ")
+         else:
+            self.tokens.appendleft(n)
+            break
+
+   def _booly(self, acc):
+      n = self.tokens.popleft()
+      if n == "(":
+         acc.append(n)
+         self._expression(acc)
+         n = self.tokens.popleft()
+         if n != ")":
+            raise Exception("unbalanced parens")
+         acc.append(n)
+         self._spaces(acc, throw=True)
+      elif n == "t":
+         acc.append("m.has_tag(\"")
+         self._spaces(acc, throw=True)
+         self._words(acc)
+         acc.append("\")")
+      else:
+         raise Exception("wanted a booly identifier")
+
+   def _words(self, acc):
+      foundone = False
+      while True:
+         n = self.tokens.popleft()
+         if n in self.keywords:
+            self.tokens.appendleft(n)
+            if not foundone:
+               raise Exception("no words")
+            self._rstrip(acc)
+            break
+         else:
+            foundone = True
+            acc.append(n)
+            self._spaces(acc)
+
+   def match(self, movie):
+      #pylint: disable=eval-used
+      return eval(self.ast, {"m": movie})

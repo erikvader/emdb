@@ -174,6 +174,26 @@ def copy_selected(man, sel):
    except ModuleNotFoundError:
       man.get_widget("infoPopup").show_info("Can't find pyperclip", kind=interface.InfoPopup.WARNING)
 
+def selector_search(man):
+   def err(manager):
+      manager.get_widget("MAIN").focus()
+   def succ(manager):
+      mai = manager.get_widget("MAIN")
+      mai.focus()
+      inp = manager.get_widget("input")
+      val = inp.get_input()
+      if val:
+         try:
+            sear = database.Search(val)
+            mai.filter_by(sear.match)
+         except:
+            pass
+      else:
+         mai.clear_filter()
+
+   man.get_widget("inputTitle").set_title("Search for:")
+   man.get_widget("input").new_session(on_error=err, on_success=succ)
+
 # widgets #####################################################################
 class QuerySession():
    def __init__(self, manager):
@@ -434,7 +454,8 @@ class SelectorWidget(interface.FancyListWidget):
          "m": "modify",
          "y": "copy path",
          "n": "set name",
-         "TAB": "goto inspection"
+         "TAB": "goto inspection",
+         "f": "search"
       }
       self.sort_functions = deque([
          lambda a,b: a.get_disp().lower() < b.get_disp().lower(),
@@ -497,6 +518,8 @@ class SelectorWidget(interface.FancyListWidget):
          set_name_selected(self.manager, self.get_selected())
       elif key == interface.ca.TAB:
          self.manager.get_widget("inspectionSelector").focus()
+      elif key == ord('f'):
+         selector_search(self.manager)
       else:
          return False
       return True
