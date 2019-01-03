@@ -440,6 +440,8 @@ class SelectorWidget(interface.FancyListWidget):
       self.sort_functions = deque([
          lambda a,b: a.get_disp().lower() < b.get_disp().lower(),
          lambda a,b: a.get_disp().lower() >= b.get_disp().lower(),
+         lambda a,b: a.get_added_date() >= b.get_added_date(),
+         lambda a,b: a.get_added_date() < b.get_added_date(),
          lambda a,b: int(a.is_starred()) > int(b.is_starred())
       ])
 
