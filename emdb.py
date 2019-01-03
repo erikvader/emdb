@@ -433,7 +433,6 @@ class SelectorWidget(interface.FancyListWidget):
          "s": "toggle star",
          "m": "modify",
          "y": "copy path",
-         "o": "sort",
          "n": "set name",
          "TAB": "goto inspection"
       }
@@ -443,6 +442,13 @@ class SelectorWidget(interface.FancyListWidget):
          lambda a,b: a.get_added_date() >= b.get_added_date(),
          lambda a,b: a.get_added_date() < b.get_added_date(),
          lambda a,b: int(a.is_starred()) > int(b.is_starred())
+      ])
+      self.sort_names = deque([
+         "n↓",
+         "n↑",
+         "dn",
+         "do",
+         "*"
       ])
 
    def sort_next(self):
@@ -456,6 +462,9 @@ class SelectorWidget(interface.FancyListWidget):
       sf = self.sort_functions[0]
       self.sort_by(lambda m: Cmp(m, sf))
       self.sort_functions.rotate(-1)
+
+      self.key_help["o"] = self.sort_names[0]
+      self.sort_names.rotate(-1)
 
    def init(self):
       self.set_list(self.manager["db"].get_movies())
