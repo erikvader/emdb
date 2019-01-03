@@ -213,7 +213,7 @@ class Widget():
       if self.panel:
          self.panel.show()
 
-   def _is_hidden(self):
+   def is_hidden(self):
       if self.panel:
          return self.panel.hidden()
       raise Exception("this widget doesn't have a panel")
@@ -247,9 +247,9 @@ class Layout(Widget):
          w._hide()
 
    #pylint: disable=protected-access
-   def _is_hidden(self):
+   def is_hidden(self):
       for w in self.widgets:
-         if not w._is_hidden():
+         if not w.is_hidden():
             return False
       return True
 
@@ -514,8 +514,10 @@ class ListWidget(Widget):
 
    def _remove_index(self, i):
       del self.list[i]
-      self.highlighted.remove(i)
-      self._index_list.remove(i)
+      def fix(x):
+         return (h if h < i else h-1 for h in x if h != i)
+      self.highlighted = set(fix(self.highlighted))
+      self._index_list = list(fix(self._index_list))
       self._select(self.selected)
 
    def remove_selected(self):
@@ -566,6 +568,10 @@ class ListWidget(Widget):
          self.prev()
       elif key == ca.SP:
          self.highlight()
+      elif key == ord('g'):
+         self.goto_first()
+      elif key == ord('G'):
+         self.goto_last()
       else:
          return False
       return True
@@ -741,7 +747,7 @@ class PopupLayout(Layout):
       self.change_focus(0)
 
    def is_popupped(self):
-      return not self.widgets[1]._is_hidden()
+      return not self.widgets[1].is_hidden()
 
    def toggle(self):
       if not self.is_popupped():
@@ -763,6 +769,48 @@ class PopupLayout(Layout):
          self.show_popup()
       else:
          self.hide_popup()
+
+class TabbedLayout(Layout):
+   def __init__(self, name, *widgets):
+      super().__init__(name)
+      self.widgets = widgets
+
+   #pylint: disable=protected-access
+   def _init(self, x, y, w, h, manager, parent):
+      super()._init(x, y, w, h, manager, parent)
+      for wi in self.widgets:
+         wi._init(x, y, w, h, manager, self)
+
+      for wi in self.widgets[1:]:
+         wi._hide()
+
+   def _tab_to(self, index):
+      self.widgets[self.focused]._hide()
+      self.change_focus(index)
+      self.widgets[self.focused]._show()
+      self.widgets[self.focused].touch()
+
+   def show_next(self):
+      self._tab_to(self.focused + 1)
+
+   def show_prev(self):
+      self._tab_to(self.focused - 1)
+
+   #pylint: disable=protected-access,fixme
+   def _resize(self, stdx, stdy, stdw, stdh):
+      # FIXME: self.resize is called before the children are updated, might be a problem
+      super()._resize(stdx, stdy, stdw, stdh)
+      for w in self.widgets:
+         w._resize(stdx, stdy, stdw, stdh)
+
+   #pylint: disable=protected-access
+   def _focus_child(self, child):
+      oldfocus = self.focused
+      super()._focus_child(child)
+      if self.focused != oldfocus:
+         self.widgets[oldfocus]._hide()
+         self.widgets[self.focused]._show()
+         # self.widgets[self.focused].touch()
 
 class WrapperLayout(Layout):
    def __init__(self, name, widget):

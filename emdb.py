@@ -34,6 +34,28 @@ def play(path):
 
 # commands from main widget ###################################################
 
+def add_inspection(man, sel):
+   if not sel:
+      return
+
+   def err(manager):
+      manager.get_widget("inspectionSelector").focus()
+
+   def succ(manager):
+      newName = move_file(sel, man["id"], man["ad"])
+      stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
+      tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
+      newMovie = man["db"].add_movie(newName, "", False, stars, tags)
+
+      manager.get_widget("MAIN").add(newMovie)
+
+      insp = manager.get_widget("inspectionSelector")
+      insp.remove_selected()
+      insp.focus()
+
+   man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
+   man.get_widget("modifyTitle").set_title(sel)
+
 def start_inspection(man):
    allCandidates = os.listdir(man["bd"])
    aclen = len(allCandidates)
@@ -143,11 +165,6 @@ def toggle_starred(man, sel):
    sel.set_starred(not sel.is_starred())
    man.get_widget("videoStats").update()
 
-def play_selected(man, sel):
-   if not sel:
-      return
-   play(os.path.join(man["ad"], sel.get_path()))
-
 def copy_selected(man, sel):
    if not sel:
       return
@@ -189,6 +206,11 @@ class StatsWidget(interface.Widget):
          return
       self.movie = movie
       self.update()
+
+   def clear(self):
+      self.values.clear()
+      self.movie = None
+      self.touch()
 
    def update(self):
       self.touch()
@@ -412,7 +434,8 @@ class SelectorWidget(interface.FancyListWidget):
          "m": "modify",
          "y": "copy path",
          "o": "sort",
-         "n": "set name"
+         "n": "set name",
+         "TAB": "goto inspection"
       }
       self.sort_functions = deque([
          lambda a,b: a.get_disp().lower() < b.get_disp().lower(),
@@ -437,7 +460,7 @@ class SelectorWidget(interface.FancyListWidget):
       self.sort_next()
 
    def key_event(self, key):
-      if super().key_event(key):
+      if key != interface.ca.SP and super().key_event(key):
          return True
 
       if key == ord('i'):
@@ -451,40 +474,77 @@ class SelectorWidget(interface.FancyListWidget):
       elif key == ord('s'):
          toggle_starred(self.manager, self.get_selected())
       elif key == ord('l') or key == interface.curses.KEY_RIGHT:
-         play_selected(self.manager, self.get_selected())
+         sel = self.get_selected()
+         if not sel:
+            return
+         play(os.path.join(self.manager["ad"], sel.get_path()))
       elif key == ord('m'):
          modify_selected(self.manager, self.get_selected())
       elif key == ord('y'):
          copy_selected(self.manager, self.get_selected())
-      elif key == ord('g'):
-         self.goto_first()
-      elif key == ord('G'):
-         self.goto_last()
       elif key == ord('n'):
          set_name_selected(self.manager, self.get_selected())
+      elif key == interface.ca.TAB:
+         self.manager.get_widget("inspectionSelector").focus()
       else:
          return False
       return True
 
+class InspectionSelectorWidget(interface.FancyListWidget):
+   def __init__(self, name):
+      super().__init__(name)
+      self.key_help = {
+         "jkgG": "vim",
+         "l": "play",
+         "TAB": "goto main",
+         "a": "add",
+         "d": "trash"
+      }
+
+   def key_event(self, key):
+      if key != interface.ca.SP and super().key_event(key):
+         return True
+
+      if key == interface.ca.TAB:
+         self.manager.get_widget("MAIN").focus()
+      elif key == ord('l'):
+         sel = self.get_selected()
+         if not sel:
+            return
+         play(os.path.join(self.manager["id"], sel))
+      elif key == ord('a'):
+         add_inspection(self.manager, self.get_selected())
+      elif key == ord('d'):
+         sel = self.get_selected()
+         if sel:
+            self.remove_selected()
+            move_file(sel, self.manager["id"], self.manager["td"])
+      else:
+         return False
+      return True
+
+   def onfocus(self):
+      self.set_list(os.listdir(self.manager["id"]))
+
 class PreviewWidget(interface.ImageWidget):
    def __init__(self, name):
       super().__init__(name)
-      self.movie = None
+      self.movie_path = None
       self.intended_path = ""
       self.thumbnailer_sem = Semaphore(2)
       self.thumb_queue_lock = Lock()
       self.thumb_queue = deque(maxlen=4)
       self.thumb = "ffmpegthumbnailer"
 
-   def preview(self, movie, moviedir):
-      if self.movie == movie:
+   def preview(self, movie_path, moviedir):
+      if self.movie_path == movie_path:
          return
-      self.movie = movie
+      self.movie_path = movie_path
 
       from hashlib import md5
       m = md5()
       m.update(self.manager["cd"].encode())
-      m.update(self.movie.get_path().encode())
+      m.update(self.movie_path.encode())
       cachename = m.hexdigest() + ".jpg"
       cachename = os.path.join(self.manager["cd"], cachename)
 
@@ -492,7 +552,7 @@ class PreviewWidget(interface.ImageWidget):
 
       if not os.path.isfile(cachename):
          self.clear_image()
-         self._start_thumbnailer(os.path.join(moviedir, self.movie.get_path()), cachename)
+         self._start_thumbnailer(os.path.join(moviedir, self.movie_path), cachename)
       else:
          self.set_image(cachename)
 
@@ -576,11 +636,14 @@ def global_key_help_hook(man):
    kh.set_cur_keys(keys)
 
 def update_stats(man):
-   # TODO: check which one has focus
-   sel = man.get_widget("MAIN")
-   if sel.get_selected():
-      man.get_widget("videoStats").set_movie(sel.get_selected())
-      man.get_widget("img").preview(sel.get_selected(), man["ad"])
+   mai = man.get_widget("MAIN")
+   ins = man.get_widget("inspectionSelector")
+   if not mai.is_hidden() and mai.get_selected():
+      man.get_widget("videoStats").set_movie(mai.get_selected())
+      man.get_widget("img").preview(mai.get_selected().get_path(), man["ad"])
+   elif not ins.is_hidden() and ins.get_selected():
+      man.get_widget("videoStats").clear()
+      man.get_widget("img").preview(ins.get_selected(), man["id"])
 
 def popup_fix(man):
    def check(wid, *_, **__):
@@ -613,7 +676,11 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
                            interface.SplitLayout(
                               "mainMiddleLayout",
                               interface.SplitLayout.Alignment.HORIZONTAL,
-                              SelectorWidget("MAIN"), 0.3,
+                              interface.TabbedLayout(
+                                 "selectorTab",
+                                 SelectorWidget("MAIN"),
+                                 InspectionSelectorWidget("inspectionSelector")
+                              ), 0.3,
                               interface.BorderWrapperLayout(
                                  "l",
                                  PreviewWidget("img")
