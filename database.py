@@ -161,6 +161,21 @@ class Database:
          return res[0]
       raise self.DBError("tid {} doesn't exist".format(tid))
 
+   def _remove_redundant_tags(self, c, tags):
+      def find_supersets(tid):
+         while True:
+            tid = self._get_tag_info(c, tid)["subsetof"]
+            if tid:
+               yield tid
+            else:
+               break
+
+      from itertools import chain
+      all_supers = chain.from_iterable(find_supersets(t) for t in tags)
+      all_supers = set(all_supers)
+
+      return [t for t in tags if not t in all_supers]
+
    # public interface #########################################################
    def add_movie(self, filename, name, starred, stars, tags):
       #ppylint: disable=no-member
@@ -179,7 +194,8 @@ class Database:
 
    def set_tags_for(self, mid, tags):
       with self._transaction() as c:
-         self._link_set(c, mid, tags, tid=True)
+         t = self._remove_redundant_tags(c, tags)
+         self._link_set(c, mid, t, tid=True)
 
    def set_stars_for(self, mid, stars):
       with self._transaction() as c:
