@@ -1,5 +1,4 @@
 import curses
-import _curses
 import curses.panel as cp
 import curses.ascii as ca
 from enum import Enum, auto
@@ -13,96 +12,8 @@ import termios
 from time import sleep, monotonic_ns
 from threading import Thread, Lock
 from collections import deque
-
-# Ignore Curses Error
-def ice(f, *args):
-   try:
-      f(*args)
-   except _curses.error:
-      pass
-
-class StringFormatter():
-   @staticmethod
-   def _parse_string(string, manager):
-      escon = False
-      word = ""
-      from itertools import zip_longest
-      for c,h in zip_longest(string, string[1:], fillvalue=" "):
-         if escon:
-            if c == '{':
-               pass
-            elif c == '}':
-               escon = False
-               yield manager.get_attr(word)
-            elif c == '0':
-               yield 0
-               escon = False
-            else:
-               word += c
-         elif c == '$' and (h == '{' or h == '0'):
-            escon = True
-            word = ""
-         else:
-            yield c
-
-   @staticmethod
-   def _parse(stringorlist, manager):
-      if isinstance(stringorlist, str):
-         stringorlist = [stringorlist]
-
-      for l in stringorlist:
-         yield True
-         for c in StringFormatter._parse_string(l, manager):
-            yield c
-
-   @staticmethod
-   def parse_and_len(stringorlist, manager):
-      parsed = list(StringFormatter._parse(stringorlist, manager))
-      return sum(1 for x in parsed if isinstance(x, str)), parsed
-
-   @staticmethod
-   def _draw_dots(win, x, y):
-      for _ in range(3):
-         if x < 0:
-            break
-         ice(win.addch, y, x, '.')
-         x -= 1
-
-   @staticmethod
-   def calc_centered_pos(string_len, win_len):
-      return max(0, (win_len - string_len) // 2)
-
-   @staticmethod
-   def draw(win, x, y, stringorlist, manager, centered=False, wrap=False, dots=False):
-      _, w = win.getmaxyx()
-      if centered:
-         lenn, parsed = StringFormatter.parse_and_len(stringorlist, manager)
-         x = StringFormatter.calc_centered_pos(lenn, w)
-      else:
-         parsed = StringFormatter._parse(stringorlist, manager)
-      return StringFormatter.draw_parsed(win, x, y, parsed, wrap=wrap, dots=dots)
-
-   @staticmethod
-   def draw_parsed(win, x, y, parsed, wrap=False, dots=False):
-      h, w = win.getmaxyx()
-      attr = 0
-      for c in parsed:
-         if y >= h:
-            break
-         if x >= w:
-            if dots:
-               StringFormatter._draw_dots(win, x-1, y)
-            break
-
-         if isinstance(c, str):
-            ice(win.addch, y, x, c)
-            if attr != 0:
-               ice(win.chgat, y, x, 1, attr)
-            x += 1
-         elif not isinstance(c, bool):
-            attr = c
-
-      return (x, y)
+from . import StringFormatter
+from .StringFormatter import ice
 
 class Widget():
    def __init__(self, name):
@@ -452,7 +363,6 @@ class ListWidget(Widget):
       self.list = []
       self.selected = 0
       self.highlighted = set()
-      # TODO: should be OrderedDict?
       self._index_list = []
       self._list_top = 0
       self._last_filter_fun = lambda _: True
