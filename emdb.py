@@ -13,6 +13,7 @@ import shutil
 from collections import deque
 from threading import Semaphore, Lock
 from functools import partial
+import random
 
 # random io ###################################################################
 def move_file (f, src, dest):
@@ -63,7 +64,6 @@ def start_inspection(man):
       man.get_widget("infoPopup").show_info("No videos in buffer", kind=interface.InfoPopup.ERROR)
       return
 
-   import random
    randChoice = allCandidates[random.randrange(len(allCandidates))]
 
    randChoice = move_file(randChoice, man["bd"], man["id"])
@@ -451,7 +451,8 @@ class SelectorWidget(interface.FancyListWidget):
          "y": "copy path",
          "n": "set name",
          "TAB": "goto inspection",
-         "f": "search"
+         "f": "search",
+         "r": "random"
       }
       self.sort_functions = deque([
          lambda a,b: a.get_disp().lower() < b.get_disp().lower(),
@@ -517,6 +518,11 @@ class SelectorWidget(interface.FancyListWidget):
          self.manager.get_widget("inspectionSelector").focus()
       elif key == ord('f'):
          selector_search(self.manager)
+      elif key == ord('r'):
+         vis = self.get_visible()
+         if vis:
+            ra = random.choice(vis)
+            play(os.path.join(self.manager["ad"], ra.get_path()))
       else:
          return False
       return True
