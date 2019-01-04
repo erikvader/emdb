@@ -306,9 +306,19 @@ class Movie:
       self.mdict["name"] = name
       self.db.set_name_for(self.get_id(), name)
 
-   def has_tag(self, glob):
+   def _has_tagstar(self, glob, cands):
       r = _glob_to_regex(glob)
-      return any(r.match(t.get_name()) for t in self.get_tags())
+      if cands:
+         cands = (t.get_name().lower() for t in cands)
+      else:
+         cands = [""]
+      return any(r.fullmatch(tn) for tn in cands)
+
+   def has_tag(self, glob):
+      return self._has_tagstar(glob, self.get_derived_tags())
+
+   def has_star(self, glob):
+      return self._has_tagstar(glob, self.get_stars())
 
    def __str__(self):
       return self.get_disp()
@@ -347,13 +357,17 @@ class Star(_TagStar):
    pass
 
 class Search():
+   class ParseError(Exception):
+      pass
+
    def __init__(self, string):
       self.ast = None
-      self.keywords = {"(", ")", "t", 0, "or", "and"}
+      self.keywords = {"(", ")", "t", 0, "or", "and", "not", "p", "''", "s"}
       self.tokens = deque(Search._tokenize(string))
 
       acc = []
       self._search_string(acc)
+      self._lstrip(acc)
       self.ast = compile("".join(acc), "<string>", "eval")
 
    @staticmethod
@@ -386,16 +400,20 @@ class Search():
       while acc and acc[-1] == " ":
          acc.pop()
 
+   def _lstrip(self, acc):
+      while acc and acc[0] == " ":
+         acc.pop(0)
+
    def _search_string(self, acc):
       self._expression(acc)
       n = self.tokens.popleft()
       if n != 0:
-         raise Exception("not everything was read")
+         raise self.ParseError("not everything was read")
 
    def _expression(self, acc):
       while True:
          self._spaces(acc, throw=True)
-         self._booly(acc)
+         self._negetable(acc)
          n = self.tokens.popleft()
          if n == "or" or n == "and":
             acc.append(" ")
@@ -405,6 +423,17 @@ class Search():
             self.tokens.appendleft(n)
             break
 
+   def _negetable(self, acc):
+      n = self.tokens.popleft()
+      if n == "not":
+         acc.append(" ")
+         acc.append("not")
+         acc.append(" ")
+         self._spaces(acc, throw=True)
+      else:
+         self.tokens.appendleft(n)
+      self._booly(acc)
+
    def _booly(self, acc):
       n = self.tokens.popleft()
       if n == "(":
@@ -412,7 +441,7 @@ class Search():
          self._expression(acc)
          n = self.tokens.popleft()
          if n != ")":
-            raise Exception("unbalanced parens")
+            raise self.ParseError("unbalanced parens")
          acc.append(n)
          self._spaces(acc, throw=True)
       elif n == "t":
@@ -420,22 +449,30 @@ class Search():
          self._spaces(acc, throw=True)
          self._words(acc)
          acc.append("\")")
+      elif n == "p":
+         acc.append("m.has_star(\"")
+         self._spaces(acc, throw=True)
+         self._words(acc)
+         acc.append("\")")
+      elif n == "s":
+         acc.append("m.is_starred()")
+         self._spaces(acc, throw=True)
       else:
-         raise Exception("wanted a booly identifier")
+         raise self.ParseError("wanted a booly identifier")
 
    def _words(self, acc):
       foundone = False
       while True:
          n = self.tokens.popleft()
-         if n in self.keywords:
+         if n in self.keywords and n != "''":
             self.tokens.appendleft(n)
             if not foundone:
-               raise Exception("no words")
+               raise self.ParseError("no words")
             self._rstrip(acc)
             break
          else:
             foundone = True
-            acc.append(n)
+            acc.append("" if n == "''" else n)
             self._spaces(acc)
 
    def match(self, movie):

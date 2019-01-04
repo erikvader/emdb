@@ -186,8 +186,8 @@ def selector_search(man):
          try:
             sear = database.Search(val)
             mai.filter_by(sear.match)
-         except:
-            pass
+         except database.Search.ParseError as e:
+            man.get_widget("infoPopup").show_info(str(e), kind=interface.InfoPopup.ERROR)
       else:
          mai.clear_filter()
 
