@@ -3,6 +3,7 @@ import sqlite3 as S
 from contextlib import contextmanager, closing
 import re
 from collections import deque
+from itertools import chain
 
 def _glob_to_regex(glob):
    reg = re.escape(glob)
@@ -144,13 +145,13 @@ class Database:
          toadd["subsetof"] = subsetof
       return self._insert_into(cursor, "Tag", toadd)
 
-   def _get_tags_for(self, cursor, mid, derived):
+   def _get_tags_for(self, cursor, mid):
       res = self._get_all_from(cursor, "Tagging", "mid = {}".format(mid))
-      if not derived:
-         return [r["tid"] for r in res]
+      return [r["tid"] for r in res]
 
+   def _get_derived_tags_for(self, cursor, mid):
+      queue = self._get_tags_for(cursor, mid)
       visited = set()
-      queue = [r["tid"] for r in res]
       while queue:
          eid = queue.pop(0)
          visited.add(eid)
@@ -162,13 +163,18 @@ class Database:
 
       return list(visited)
 
+   def _get_superset_tags_for(self, cursor, mid):
+      tags = self._get_tags_for(cursor, mid)
+      all_supers = self._get_tags_supersets(cursor, tags)
+      return list(chain(tags, all_supers))
+
    def _get_tag_info(self, cursor, tid):
       res = self._get_all_from(cursor, "Tag", "id = {}".format(tid))
       if res:
          return res[0]
       raise self.DBError("tid {} doesn't exist".format(tid))
 
-   def _remove_redundant_tags(self, c, tags):
+   def _get_tags_supersets(self, c, tags):
       def find_supersets(tid):
          while True:
             tid = self._get_tag_info(c, tid)["subsetof"]
@@ -177,10 +183,11 @@ class Database:
             else:
                break
 
-      from itertools import chain
       all_supers = chain.from_iterable(find_supersets(t) for t in tags)
-      all_supers = set(all_supers)
+      return set(all_supers)
 
+   def _remove_redundant_tags(self, c, tags):
+      all_supers = self._get_tags_supersets(c, tags)
       return [t for t in tags if not t in all_supers]
 
    # public interface #########################################################
@@ -234,9 +241,14 @@ class Database:
          stars = self._get_stars_for(c, mid)
          return [Star(self._get_star_info(c, pid)) for pid in stars]
 
-   def get_tags_for(self, mid, derived=True):
+   def get_tags_for(self, mid):
       with self._cursor() as c:
-         tags = self._get_tags_for(c, mid, derived)
+         tags = self._get_tags_for(c, mid)
+         return [Tag(self._get_tag_info(c, tid)) for tid in tags]
+
+   def get_superset_tags_for(self, mid):
+      with self._cursor() as c:
+         tags = self._get_superset_tags_for(c, mid)
          return [Tag(self._get_tag_info(c, tid)) for tid in tags]
 
    def get_tags(self):
@@ -255,6 +267,7 @@ class Movie:
       self.stars = None
       self.tags = None
       self.derived_tags = None
+      self.superset_tags = None
 
    def get_id(self):
       return self.mdict["id"]
@@ -282,13 +295,18 @@ class Movie:
 
    def get_tags(self):
       if not self.tags:
-         self.tags = self.db.get_tags_for(self.get_id(), derived=False)
+         self.tags = self.db.get_tags_for(self.get_id())
       return self.tags
 
    def get_derived_tags(self):
       if not self.derived_tags:
-         self.derived_tags = self.db.get_tags_for(self.get_id(), derived=True)
+         self.derived_tags = self.db.get_tags_for(self.get_id())
       return self.derived_tags
+
+   def get_superset_tags(self):
+      if not self.superset_tags:
+         self.superset_tags = self.db.get_superset_tags_for(self.get_id())
+      return self.superset_tags
 
    def set_tags(self, tags):
       self.tags = None
@@ -315,7 +333,7 @@ class Movie:
       return any(r.fullmatch(tn) for tn in cands)
 
    def has_tag(self, glob):
-      return self._has_tagstar(glob, self.get_derived_tags())
+      return self._has_tagstar(glob, self.get_superset_tags())
 
    def has_star(self, glob):
       return self._has_tagstar(glob, self.get_stars())
