@@ -358,10 +358,8 @@ class FuzzyFindList(interface.SplitLayout):
    def set_list(self, l):
       self.fInput.clear()
       self.fList.set_list(l)
+      self.fList.sort_by(lambda s: s.get_name().lower())
       self.fList.goto_first()
-
-   def sort_by(self, pred):
-      self.fList.sort_by(pred)
 
    def highlight_by(self, pred):
       self.fList.highlight_by(pred)
@@ -388,7 +386,6 @@ class ModifyStarsWidget(FuzzyFindList):
 
    def clear(self):
       self.set_list(self.manager["db"].get_stars())
-      self.sort_by(lambda s: s.get_name().lower())
 
 class ModifyTagsWidget(FuzzyFindList):
    def __init__(self, name):
@@ -409,7 +406,6 @@ class ModifyTagsWidget(FuzzyFindList):
 
    def clear(self):
       self.set_list(self.manager["db"].get_tags())
-      self.sort_by(lambda t: t.get_name().lower())
 
 class ModifyMovieQuery(interface.WrapperLayout, QuerySession):
    def __init__(self, name, widget):
@@ -490,6 +486,7 @@ class SelectorWidget(interface.FancyListWidget):
    def init(self):
       self.set_list(self.manager["db"].get_movies())
       self.sort_next()
+      self.goto_first()
 
    def key_event(self, key):
       if key != interface.ca.SP and super().key_event(key):

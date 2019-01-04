@@ -319,7 +319,7 @@ class InputWidget(Widget):
       self.cursor += to_move
 
    def key_event(self, key):
-      if ca.isalnum(key) or key == ord(' '):
+      if ca.isprint(key):
          self.value.insert(self._offset + self.cursor, chr(key))
          self.cursor += 1
          self._fix_single_move()
@@ -418,8 +418,11 @@ class ListWidget(Widget):
       self.clear_filter()
       self.clear_highlighted()
 
-   def add(self, a):
+   def add(self, a, select_new=True):
       self.list.append(a)
+      if select_new:
+         self._index_list.append(len(self.list) - 1)
+         self.selected = len(self._index_list) - 1
       self.refresh()
 
    def _remove_index(self, i):
@@ -436,6 +439,8 @@ class ListWidget(Widget):
       self._remove_index(self._index_list[self.selected])
 
    def filter_by(self, pred):
+      if not self.list:
+         return
       self._index_list = [i for i,x in enumerate(self.list) if pred(x)]
       self._select(self.selected)
       self._last_filter_fun = pred
@@ -445,15 +450,20 @@ class ListWidget(Widget):
       self.filter_by(lambda _: True)
 
    def sort_by(self, keyfun):
-      dec = [(l, i in self._index_list, i in self.highlighted) for i,l in enumerate(self.list)]
-      self.highlighted.clear()
-      self._index_list.clear()
+      if not self.list:
+         return
+
+      dec = [(l, i) for i,l in enumerate(self.list)]
+      old_selected = self._index_list[self.selected]
 
       dec.sort(key=lambda tup: keyfun(tup[0]))
 
-      self.list = [l for l,_,_ in dec]
-      self.highlighted = {i for i,(_,_,h) in enumerate(dec) if h}
-      self._index_list = [i for i,(_,il,_) in enumerate(dec) if il]
+      self.list = [l for l,_ in dec]
+      self.highlighted = {i for i,(_,h) in enumerate(dec) if h in self.highlighted}
+      self._index_list = [i for i,(_,il) in enumerate(dec) if il in self._index_list]
+
+      new_selected = [a for _,a in dec].index(old_selected)
+      self.selected = self._index_list.index(new_selected)
 
       self._last_sort_fun = keyfun
       self.touch()
@@ -487,8 +497,8 @@ class ListWidget(Widget):
       return True
 
    def refresh(self):
-      self.filter_by(self._last_filter_fun)
       self.sort_by(self._last_sort_fun)
+      self.filter_by(self._last_filter_fun)
       self.touch()
 
    def _str_of(self, i, width):
