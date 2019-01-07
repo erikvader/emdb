@@ -371,6 +371,7 @@ class ListWidget(Widget):
       self._last_sort_fun = cmp_to_key(lambda a,b: True)
 
    def _select(self, index):
+      self.touch()
       if not self.list:
          return
       self.selected = index
@@ -380,8 +381,6 @@ class ListWidget(Widget):
 
       if self.selected < 0:
          self.selected = 0
-
-      self.touch()
 
    def next(self, step=1):
       self._select(self.selected + step)
