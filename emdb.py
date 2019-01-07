@@ -31,7 +31,8 @@ def move_file (f, src, dest):
    return new_f
 
 def play(path):
-   P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
+   p = P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
+   return p.returncode == 0
 
 # commands from main widget ###################################################
 
@@ -59,12 +60,11 @@ def add_inspection(man, sel):
 
 def start_inspection(man):
    allCandidates = os.listdir(man["bd"])
-   aclen = len(allCandidates)
-   if aclen <= 0:
+   if not allCandidates:
       man.get_widget("infoPopup").show_info("No videos in buffer", kind=interface.InfoPopup.ERROR)
       return
 
-   randChoice = allCandidates[random.randrange(len(allCandidates))]
+   randChoice = random.choice(allCandidates)
 
    randChoice = move_file(randChoice, man["bd"], man["id"])
    play(os.path.join(man["id"], randChoice))
