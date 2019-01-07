@@ -202,7 +202,8 @@ class Database:
          if stars:
             self._link_set(c, mid, stars, pid=True)
          if tags:
-            self._link_set(c, mid, tags, tid=True)
+            t = self._remove_redundant_tags(c, tags)
+            self._link_set(c, mid, t, tid=True)
 
          return self.get_movies(mid)[0]
 
