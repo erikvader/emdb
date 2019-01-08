@@ -969,9 +969,6 @@ class Manager():
          curses.endwin()
       return False
 
-   def send_fake_resize_event(self):
-      curses.ungetch(curses.KEY_RESIZE)
-
    def on_any_event(self, f):
       self.global_hook.append(f)
 

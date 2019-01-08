@@ -91,7 +91,6 @@ def start_inspection(man):
       man.get_widget("modifyTitle").set_title(randChoice)
 
    man.get_widget("infoPopup").show_question("Want to keep?", yes_call=yes, no_call=no)
-   man.send_fake_resize_event()
 
 def modify_selected(man, sel):
    if not sel:
