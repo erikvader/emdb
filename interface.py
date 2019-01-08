@@ -1037,6 +1037,7 @@ class Manager():
 
          self.layout._draw()
 
+         curses.update_lines_cols()
          cp.update_panels()
          curses.doupdate()
 
