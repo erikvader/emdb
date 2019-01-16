@@ -1,7 +1,8 @@
 #!/bin/python
 
 """
-optional dependenies: pyperclip
+dependencies: backup_move (from my dotfiles)
+optional dependencies: pyperclip
 """
 
 from . import interface
@@ -14,22 +15,9 @@ from collections import deque
 from threading import Semaphore, Lock
 from functools import partial
 import random
+from backup_move import move_file
 
 # random io ###################################################################
-def move_file (f, src, dest):
-   num = 1
-   s = os.path.join(src, f)
-   if not (os.path.exists(s)):
-      raise Exception("Couldn't copy:", s, "Is the name too long maybe?")
-   new_f = f
-   d = os.path.join(dest, f)
-   while os.path.exists(d):
-      new_f = str(num) + "_" + f
-      d = os.path.join(dest, new_f)
-      num += 1
-   shutil.move(s, d)
-   return new_f
-
 def play(path):
    p = P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
    return p.returncode == 0
@@ -44,7 +32,7 @@ def add_inspection(man, sel):
       manager.get_widget("inspectionSelector").focus()
 
    def succ(manager):
-      newName = move_file(sel, man["id"], man["ad"])
+      newName = move_file(sel, man["ad"], src_folder=man["id"])
       stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
       tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
       newMovie = man["db"].add_movie(newName, "", False, stars, tags)
@@ -66,11 +54,11 @@ def start_inspection(man):
 
    randChoice = random.choice(allCandidates)
 
-   randChoice = move_file(randChoice, man["bd"], man["id"])
+   randChoice = move_file(randChoice, man["id"], src_folder=man["bd"])
    play(os.path.join(man["id"], randChoice))
 
    def no(man):
-      move_file(randChoice, man["id"], man["td"])
+      move_file(randChoice, man["td"], src_folder=man["id"])
       man.get_widget("MAIN").focus()
 
    def yes(man):
@@ -78,7 +66,7 @@ def start_inspection(man):
          manager.get_widget("MAIN").focus()
 
       def succ(manager):
-         newName = move_file(randChoice, man["id"], man["ad"])
+         newName = move_file(randChoice, man["ad"], src_folder=man["id"])
          stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
          tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
          newMovie = man["db"].add_movie(newName, "", False, stars, tags)
@@ -555,7 +543,7 @@ class InspectionSelectorWidget(interface.FancyListWidget):
          sel = self.get_selected()
          if sel:
             self.remove_selected()
-            move_file(sel, self.manager["id"], self.manager["td"])
+            move_file(sel, self.manager["td"], src_folder=self.manager["id"])
       else:
          return False
       return True
