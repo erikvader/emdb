@@ -568,10 +568,14 @@ class ImageWidget(Widget):
    def _init(self, *args):
       super()._init(*args)
       self.cw, self.ch = self._get_font_dimensions()
-      self.w3m = S.Popen([self.w3mpath], stdin=S.PIPE, stdout=S.PIPE, universal_newlines=True)
+      try:
+         self.w3m = S.Popen([self.w3mpath], stdin=S.PIPE, stdout=S.PIPE, universal_newlines=True)
+      except FileNotFoundError:
+         self.w3m = None
 
    def set_image(self, path):
-      assert(os.path.isfile(path))
+      if not os.path.isfile(path):
+         return
       self.path = path
       self.touch()
 
@@ -601,7 +605,7 @@ class ImageWidget(Widget):
    def draw(self, win):
       # win.erase()
       # TODO: should probably run w3m clear if path is empty
-      if self.path and not self.in_idle_queue:
+      if self.path and not self.in_idle_queue and self.w3m:
          self.in_idle_queue = True
          self.manager.start_idle_job(self.post_draw)
 
@@ -638,9 +642,13 @@ class ImageWidget(Widget):
          self.path
       )
       # sleep(0.02)
-      self.w3m.stdin.write(inp)
-      self.w3m.stdin.flush()
-      self.w3m.stdout.readline()
+      try:
+         self.w3m.stdin.write(inp)
+         self.w3m.stdin.flush()
+         self.w3m.stdout.readline()
+      except BrokenPipeError:
+         self.w3m = None
+
       return False
 
 class PopupLayout(Layout):
