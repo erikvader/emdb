@@ -24,6 +24,23 @@ def play(path):
 
 # commands from main widget ###################################################
 
+def remove_movie(man, sel):
+   if not sel:
+      return
+
+   def no(man):
+      man.get_widget("MAIN").focus()
+
+   def yes(man):
+      sel.remove_self()
+      move_file(sel.get_path(), man["td"], src_folder=man["ad"])
+
+      mainWid = man.get_widget("MAIN")
+      mainWid.remove_selected()
+      mainWid.focus()
+
+   man.get_widget("infoPopup").show_question("Are you sure you want to delete this?", yes_call=yes, no_call=no)
+
 def add_inspection(man, sel):
    if not sel:
       return
@@ -440,7 +457,8 @@ class SelectorWidget(interface.FancyListWidget):
          "n": "set name",
          "TAB": "goto inspection",
          "f": "search",
-         "r": "random"
+         "r": "random",
+         "d": "delete"
       }
       self.sort_functions = deque([
          lambda a,b: a.get_disp().lower() < b.get_disp().lower(),
@@ -483,6 +501,10 @@ class SelectorWidget(interface.FancyListWidget):
 
       if key == ord('i'):
          start_inspection(self.manager)
+      elif key == ord('d'):
+         sel = self.get_selected()
+         if sel:
+            remove_movie(self.manager, sel)
       elif key == ord('p'):
          add_star(self.manager)
       elif key == ord('t'):

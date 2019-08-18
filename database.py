@@ -207,6 +207,10 @@ class Database:
 
          return self.get_movies(mid)[0]
 
+   def remove_movie(self, mid):
+      with self._transaction() as c:
+         self._remove_all_from(c, "Movie", "id = {}".format(mid))
+
    def set_tags_for(self, mid, tags):
       with self._transaction() as c:
          t = self._remove_redundant_tags(c, tags)
@@ -324,6 +328,9 @@ class Movie:
    def set_name(self, name):
       self.mdict["name"] = name
       self.db.set_name_for(self.get_id(), name)
+
+   def remove_self(self):
+      self.db.remove_movie(self.get_id())
 
    def _has_tagstar(self, glob, cands):
       r = _glob_to_regex(glob)
