@@ -130,13 +130,13 @@ class Database:
       return [r["pid"] for r in res]
 
    def _get_star_info(self, cursor, pid):
-      res = self._get_all_from(cursor, "Pornstar", "id = {}".format(pid))
+      res = self._get_all_from(cursor, "Star", "id = {}".format(pid))
       if res:
          return res[0]
       raise self.DBError("pid {} doesn't exist".format(pid))
 
    def _add_star(self, cursor, name):
-      return self._insert_into(cursor, "Pornstar", {"name": name})
+      return self._insert_into(cursor, "Star", {"name": name})
 
    # tag related ##############################################################
    def _add_tag(self, cursor, name, subsetof):
@@ -262,7 +262,7 @@ class Database:
 
    def get_stars(self):
       with self._cursor() as c:
-         return [Star(x) for x in self._get_all_from(c, "Pornstar")]
+         return [Star(x) for x in self._get_all_from(c, "Star")]
 
 #pylint: disable=protected-access
 class Movie:
