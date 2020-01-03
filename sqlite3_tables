@@ -1,0 +1,34 @@
+CREATE TABLE Starring (
+  mid integer not null,
+  pid integer not null,
+  primary key(mid, pid),
+  foreign key(mid) references Movie(id) on delete cascade,
+  foreign key(pid) references Star(id) on delete cascade
+);
+
+CREATE TABLE Tagging (
+  mid integer not null,
+  tid integer not null,
+  primary key(mid, tid),
+  foreign key(mid) references Movie(id) on delete cascade,
+  foreign key(tid) references Tag(id) on delete cascade
+);
+
+CREATE TABLE Tag (
+  id integer not null primary key autoincrement,
+  name varchar(255) not null unique,
+  subsetof integer references Tag(id)
+);
+
+CREATE TABLE Star (
+  id integer not null primary key autoincrement,
+  name varchar(255) not null unique
+);
+
+CREATE TABLE Movie (
+  id integer not null primary key autoincrement,
+  name varchar(255),
+  path varchar(255) not null,
+  added_date integer not null default (strftime('%s', 'now')),
+  starred integer not null default 0
+);
