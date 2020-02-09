@@ -3,17 +3,12 @@ import curses.panel as cp
 import curses.ascii as ca
 from enum import Enum, auto
 import os
-import subprocess as S
-from PIL import Image
-import struct
-import sys
-import fcntl
-import termios
-from time import sleep, monotonic_ns
+from time import monotonic_ns
 from threading import Thread, Lock
 from collections import deque
 from . import StringFormatter
 from .StringFormatter import ice
+import ueberzug.lib.v0 as ueberzug
 
 class Widget():
    def __init__(self, name):
@@ -90,6 +85,9 @@ class Widget():
    def resize(self, stdx, stdy, stdw, stdh):
       pass
 
+   def _covered(self, covered):
+      pass
+
    #pylint: disable=protected-access
    def focus(self):
       if not self.focusable:
@@ -146,6 +144,12 @@ class Layout(Widget):
       self.focused = 0
       self.is_layout = True
       self.focusable = False
+
+   #pylint: disable=protected-access
+   def _covered(self, covered):
+      super()._covered(covered)
+      for w in self.widgets:
+         w._covered(covered)
 
    #pylint: disable=protected-access
    def _show(self):
@@ -555,23 +559,22 @@ class ImageWidget(Widget):
    def __init__(self, name):
       super().__init__(name)
       self.path = ""
-      self.img_h = 0
-      self.img_w = 0
-      self.cw = 0
-      self.ch = 0
       self.focusable = False
-      self.w3mpath = "/usr/lib/w3m/w3mimgdisplay"
-      self.w3m = None
-      self.in_idle_queue = False
+      self.img = None
+      self.covered = False
 
-   #pylint: disable=protected-access,arguments-differ
+   #pylint: disable=arguments-differ
    def _init(self, *args):
       super()._init(*args)
-      self.cw, self.ch = self._get_font_dimensions()
-      try:
-         self.w3m = S.Popen([self.w3mpath], stdin=S.PIPE, stdout=S.PIPE, universal_newlines=True)
-      except FileNotFoundError:
-         self.w3m = None
+      self.img = self.manager["ueber"].create_placement(
+         self.name,
+         scaler=ueberzug.ScalerOption.FIT_CONTAIN.value
+      )
+
+   def _covered(self, covered):
+      super()._covered(covered)
+      self.touch()
+      self.covered = covered
 
    def set_image(self, path):
       if not os.path.isfile(path):
@@ -583,78 +586,23 @@ class ImageWidget(Widget):
       self.path = ""
       self.touch()
 
-   def _get_font_dimensions(self):
-      # NOTE: stolen from ranger
-      # Get the height and width of a character displayed in the terminal in
-      # pixels.
-      farg = struct.pack("HHHH", 0, 0, 0, 0)
-      fd_stdout = sys.stdout.fileno()
-      fretint = fcntl.ioctl(fd_stdout, termios.TIOCGWINSZ, farg)
-      rows, cols, xpixels, ypixels = struct.unpack("HHHH", fretint)
-      if xpixels == 0 and ypixels == 0:
-         process = S.Popen([self.w3mpath, "-test"], stdout=S.PIPE, universal_newlines=True)
-         output, _ = process.communicate()
-         output = output.split()
-         xpixels, ypixels = int(output[0]), int(output[1])
-         # adjust for misplacement
-         xpixels += 2
-         ypixels += 2
-
-      return (xpixels // cols), (ypixels // rows)
-
    def draw(self, win):
-      # win.erase()
-      # TODO: should probably run w3m clear if path is empty
-      if self.path and not self.in_idle_queue and self.w3m:
-         self.in_idle_queue = True
-         self.manager.start_idle_job(self.post_draw)
-
-   def post_draw(self, _man):
-      self.in_idle_queue = False
-      if not self.path:
-         return False
-
-      im = Image.open(self.path)
-      self.img_w, self.img_h = im.size
-      im.close()
-
-      aspect = self.img_w / self.img_h
-      windoww = self.w * self.cw
-      windowh = self.h * self.ch
-      dw = windoww - 3
-      dh = int(dw / aspect)
-      if dh > windowh:
-         dh = windowh
-         dw = int(dh * aspect)
-      windowx = self.x * self.cw
-      windowy = self.y * self.cw + 5
-
-      # clear, draw, sync, sync draw
-      inp = '6;{};{};{};{}\n0;1;{};{};{};{};;;;;{}\n4;\n3;\n'.format(
-         windowx,
-         windowy,
-         windoww,
-         windowh + 5,
-         windowx,
-         windowy,
-         dw,
-         dh,
-         self.path
-      )
-      # sleep(0.02)
-      try:
-         self.w3m.stdin.write(inp)
-         self.w3m.stdin.flush()
-         self.w3m.stdout.readline()
-      except BrokenPipeError:
-         self.w3m = None
-
-      return False
+      if self.path and not self.covered:
+         with self.manager["ueber"].lazy_drawing:
+            self.img.x = self.x
+            self.img.y = self.y
+            self.img.width = self.w
+            self.img.height = self.h
+            self.img.path = self.path
+            self.img.visibility = ueberzug.Visibility.VISIBLE
+      else:
+         self.img.visibility = ueberzug.Visibility.INVISIBLE
 
 class PopupLayout(Layout):
    def __init__(self, name, base, popup):
       super().__init__(name)
       self.widgets = [base, popup]
+      self.popupped = False
 
    #pylint: disable=protected-access
    def _init(self, x, y, w, h, manager, parent):
@@ -664,17 +612,21 @@ class PopupLayout(Layout):
       self.hide_popup()
 
    def show_popup(self):
+      self.popupped = True
       self.widgets[1]._show()
       # self.widgets[1]._top()
+      self.widgets[0]._covered(True)
       self.widgets[1].touch()
       self.change_focus(1)
 
    def hide_popup(self):
+      self.popupped = False
       self.widgets[1]._hide()
+      self.widgets[0]._covered(False)
       self.change_focus(0)
 
    def is_popupped(self):
-      return not self.widgets[1].is_hidden()
+      return self.popupped
 
    def toggle(self):
       if not self.is_popupped():
@@ -696,6 +648,10 @@ class PopupLayout(Layout):
          self.show_popup()
       else:
          self.hide_popup()
+
+   def _covered(self, covered):
+      if not self.is_popupped():
+         super()._covered(covered)
 
 class TabbedLayout(Layout):
    def __init__(self, name, *widgets):

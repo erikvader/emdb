@@ -16,9 +16,12 @@ from threading import Semaphore, Lock
 from functools import partial
 import random
 from backup_move import move_file
+import ueberzug.lib.v0 as ueberzug
 
 # random io ###################################################################
 def play(path):
+   # TODO: everything isn't redrawn properly if the window changes
+   # size at the same time as this spawns
    p = P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
    return p.returncode == 0
 
@@ -588,6 +591,10 @@ class PreviewWidget(interface.ImageWidget):
          return
       self.movie_path = movie_path
 
+      if movie_path is None:
+         self.clear_image()
+         return
+
       from hashlib import md5
       m = md5()
       m.update(self.manager["cd"].encode())
@@ -691,14 +698,8 @@ def update_stats(man):
    elif not ins.is_hidden() and ins.get_selected():
       man.get_widget("videoStats").clear()
       man.get_widget("img").preview(ins.get_selected(), man["id"])
-
-def popup_fix(man):
-   def check(wid, *_, **__):
-      if isinstance(wid, interface.PopupLayout):
-         if wid.is_popupped():
-            man.get_widget("img").untouch()
-
-   man.map_focused(check)
+   else:
+      man.get_widget("img").preview(None, None)
 
 # main ########################################################################
 
@@ -806,7 +807,6 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
       man.add_color("info_error", 1)
       man.on_any_event(global_key_help_hook)
       man.on_any_event(update_stats)
-      man.on_any_event(popup_fix)
       man["id"] = inspectdir
       man["ad"] = archivedir
       man["bd"] = bufferdir
@@ -814,7 +814,8 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
       man["td"] = trashdir
 
       from contextlib import closing
-      with closing(database.Database(dbfile)) as db:
+      with closing(database.Database(dbfile)) as db, ueberzug.Canvas() as canvas:
          man["db"] = db
+         man["ueber"] = canvas
          man.start()
 
