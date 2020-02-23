@@ -1,11 +1,9 @@
-#!/bin/python
-
 """
 dependencies: backup_move (from my dotfiles)
 optional dependencies: pyperclip
 """
 
-from . import interface
+from . import eeact
 from . import database
 
 import os
@@ -22,7 +20,7 @@ import ueberzug.lib.v0 as ueberzug
 def play(path):
    # TODO: everything isn't redrawn properly if the window changes
    # size at the same time as this spawns
-   p = P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL)
+   p = P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL, check=False)
    return p.returncode == 0
 
 # commands from main widget ###################################################
@@ -69,7 +67,7 @@ def add_inspection(man, sel):
 def start_inspection(man):
    allCandidates = os.listdir(man["bd"])
    if not allCandidates:
-      man.get_widget("infoPopup").show_info("No videos in buffer", kind=interface.InfoPopup.ERROR)
+      man.get_widget("infoPopup").show_info("No videos in buffer", kind=eeact.InfoPopup.ERROR)
       return
 
    randChoice = random.choice(allCandidates)
@@ -180,7 +178,7 @@ def copy_selected(man, sel):
       from pyperclip import copy
       copy(sel.get_path())
    except ModuleNotFoundError:
-      man.get_widget("infoPopup").show_info("Can't find pyperclip", kind=interface.InfoPopup.WARNING)
+      man.get_widget("infoPopup").show_info("Can't find pyperclip", kind=eeact.InfoPopup.WARNING)
 
 def selector_search(man):
    def err(manager):
@@ -195,7 +193,7 @@ def selector_search(man):
             sear = database.Search(val)
             mai.filter_by(sear.match)
          except database.Search.ParseError as e:
-            man.get_widget("infoPopup").show_info(str(e), kind=interface.InfoPopup.ERROR)
+            man.get_widget("infoPopup").show_info(str(e), kind=eeact.InfoPopup.ERROR)
       else:
          mai.clear_filter()
 
@@ -215,15 +213,15 @@ class QuerySession():
       self.on_error = on_error if on_error else lambda s: None
 
    def key_event(self, key):
-      if key == interface.ca.NL:
+      if key == eeact.ca.NL:
          self.on_success(self.manager)
-      elif key == interface.ca.ESC:
+      elif key == eeact.ca.ESC:
          self.on_error(self.manager)
       else:
          return False
       return True
 
-class StatsWidget(interface.Widget):
+class StatsWidget(eeact.Widget):
    def __init__(self, name):
       super().__init__(name)
       self.values = []
@@ -264,7 +262,7 @@ class StatsWidget(interface.Widget):
             break
          self.format_draw(win, 0, i, v)
 
-class KeyHelpWidget(interface.Widget):
+class KeyHelpWidget(eeact.Widget):
    def __init__(self, name):
       super().__init__(name)
       self.key_helps = {}
@@ -283,19 +281,19 @@ class KeyHelpWidget(interface.Widget):
          formstr.extend(["${key_highlight}", k, ":$0 ", v, ", "])
       del formstr[-1]
 
-      self.value_len, self.value = interface.StringFormatter.parse_and_len(formstr, self.manager)
+      self.value_len, self.value = eeact.StringFormatter.parse_and_len(formstr, self.manager)
 
       if self.value_len > self.w:
          formstr = [", " if i % 5 == 2 else x for i,x in enumerate(formstr) if i % 5 <= 2]
          del formstr[-1]
-         self.value_len, self.value = interface.StringFormatter.parse_and_len(formstr, self.manager)
+         self.value_len, self.value = eeact.StringFormatter.parse_and_len(formstr, self.manager)
 
    def draw(self, win):
       win.erase()
-      x = interface.StringFormatter.calc_centered_pos(self.value_len, self.w)
-      interface.StringFormatter.draw_parsed(win, x, 0, self.value, dots=True)
+      x = eeact.StringFormatter.calc_centered_pos(self.value_len, self.w)
+      eeact.StringFormatter.draw_parsed(win, x, 0, self.value, dots=True)
 
-class TitleWidget(interface.Widget):
+class TitleWidget(eeact.Widget):
    def __init__(self, name):
       super().__init__(name)
       self.value = "title"
@@ -309,8 +307,8 @@ class TitleWidget(interface.Widget):
       self.format_draw(win, 0, 0, self.value, centered=True)
 
 # NOTE: this is not fuzzy lol
-class FuzzyFindList(interface.SplitLayout):
-   class FuzzyInput(interface.InputWidget):
+class FuzzyFindList(eeact.SplitLayout):
+   class FuzzyInput(eeact.InputWidget):
       def __init__(self, name, fList):
          super().__init__(name)
          self.fList = fList
@@ -326,15 +324,15 @@ class FuzzyFindList(interface.SplitLayout):
          self.fList.filter_by(sortfun)
 
       def key_event(self, key):
-         if key != interface.ca.SP:
+         if key != eeact.ca.SP:
             if super().key_event(key):
                return True
 
-         if key == interface.curses.KEY_DOWN:
+         if key == eeact.curses.KEY_DOWN:
             self.fList.next()
-         elif key == interface.curses.KEY_UP:
+         elif key == eeact.curses.KEY_UP:
             self.fList.prev()
-         elif key == interface.ca.SP:
+         elif key == eeact.ca.SP:
             self.fList.highlight()
          else:
             return False
@@ -347,7 +345,7 @@ class FuzzyFindList(interface.SplitLayout):
          if not self.is_focused:
             self.manager.pop_attr_override()
 
-   class FuzzyList(interface.ListWidget):
+   class FuzzyList(eeact.ListWidget):
       pass
 
    def __init__(self, name):
@@ -356,7 +354,7 @@ class FuzzyFindList(interface.SplitLayout):
       super().__init__(
          name,
          self.Alignment.VERTICAL,
-         interface.BorderWrapperLayout("b", self.fInput), 2,
+         eeact.BorderWrapperLayout("b", self.fInput), 2,
          self.fList, 0.0
       )
 
@@ -386,7 +384,7 @@ class ModifyStarsWidget(FuzzyFindList):
       if super().key_event(key):
          return True
 
-      if key == interface.ca.TAB:
+      if key == eeact.ca.TAB:
          self.manager.get_widget("modifyMovieTags").focus()
       else:
          return False
@@ -406,7 +404,7 @@ class ModifyTagsWidget(FuzzyFindList):
       if super().key_event(key):
          return True
 
-      if key == interface.ca.TAB:
+      if key == eeact.ca.TAB:
          self.manager.get_widget("modifyMovieStars").focus()
       else:
          return False
@@ -415,9 +413,9 @@ class ModifyTagsWidget(FuzzyFindList):
    def clear(self):
       self.set_list(self.manager["db"].get_tags())
 
-class ModifyMovieQuery(interface.WrapperLayout, QuerySession):
+class ModifyMovieQuery(eeact.WrapperLayout, QuerySession):
    def __init__(self, name, widget):
-      interface.WrapperLayout.__init__(self, name, widget)
+      eeact.WrapperLayout.__init__(self, name, widget)
       QuerySession.__init__(self, self.manager)
 
    def new_session(self, on_success=None, on_error=None):
@@ -428,13 +426,13 @@ class ModifyMovieQuery(interface.WrapperLayout, QuerySession):
       self.manager.get_widget("modifyMovieTags").clear()
 
    def key_event(self, key):
-      if interface.WrapperLayout.key_event(self, key):
+      if eeact.WrapperLayout.key_event(self, key):
          return True
       if QuerySession.key_event(self, key):
          return True
       return False
 
-class GlobalBindings(interface.WrapperLayout):
+class GlobalBindings(eeact.WrapperLayout):
    def __init__(self, name, widget):
       super().__init__(name, widget)
       self.key_help = {"q": "exit"}
@@ -445,7 +443,7 @@ class GlobalBindings(interface.WrapperLayout):
          return True
       return False
 
-class SelectorWidget(interface.FancyListWidget):
+class SelectorWidget(eeact.FancyListWidget):
    def __init__(self, name):
       super().__init__(name)
       self.key_help = {
@@ -499,7 +497,7 @@ class SelectorWidget(interface.FancyListWidget):
       self.goto_first()
 
    def key_event(self, key):
-      if key != interface.ca.SP and super().key_event(key):
+      if key != eeact.ca.SP and super().key_event(key):
          return True
 
       if key == ord('i'):
@@ -516,7 +514,7 @@ class SelectorWidget(interface.FancyListWidget):
          self.sort_next()
       elif key == ord('s'):
          toggle_starred(self.manager, self.get_selected())
-      elif key == ord('l') or key == interface.curses.KEY_RIGHT:
+      elif key == ord('l') or key == eeact.curses.KEY_RIGHT:
          sel = self.get_selected()
          if not sel:
             return
@@ -527,7 +525,7 @@ class SelectorWidget(interface.FancyListWidget):
          copy_selected(self.manager, self.get_selected())
       elif key == ord('n'):
          set_name_selected(self.manager, self.get_selected())
-      elif key == interface.ca.TAB:
+      elif key == eeact.ca.TAB:
          self.manager.get_widget("inspectionSelector").focus()
       elif key == ord('f'):
          selector_search(self.manager)
@@ -540,7 +538,7 @@ class SelectorWidget(interface.FancyListWidget):
          return False
       return True
 
-class InspectionSelectorWidget(interface.FancyListWidget):
+class InspectionSelectorWidget(eeact.FancyListWidget):
    def __init__(self, name):
       super().__init__(name)
       self.key_help = {
@@ -552,10 +550,10 @@ class InspectionSelectorWidget(interface.FancyListWidget):
       }
 
    def key_event(self, key):
-      if key != interface.ca.SP and super().key_event(key):
+      if key != eeact.ca.SP and super().key_event(key):
          return True
 
-      if key == interface.ca.TAB:
+      if key == eeact.ca.TAB:
          self.manager.get_widget("MAIN").focus()
       elif key == ord('l'):
          sel = self.get_selected()
@@ -576,7 +574,7 @@ class InspectionSelectorWidget(interface.FancyListWidget):
    def onfocus(self):
       self.set_list(os.listdir(self.manager["id"]))
 
-class PreviewWidget(interface.ImageWidget):
+class PreviewWidget(eeact.ImageWidget):
    def __init__(self, name):
       super().__init__(name)
       self.movie_path = None
@@ -638,7 +636,8 @@ class PreviewWidget(interface.ImageWidget):
                ],
                stdin=P.DEVNULL,
                stdout=P.DEVNULL,
-               stderr=P.DEVNULL
+               stderr=P.DEVNULL,
+               check=False
             )
             def callback(outfile, _man):
                if self.intended_path == outfile:
@@ -651,9 +650,9 @@ class PreviewWidget(interface.ImageWidget):
       finally:
          self.thumbnailer_sem.release()
 
-class MyInputWidget(interface.InputWidget, QuerySession):
+class MyInputWidget(eeact.InputWidget, QuerySession):
    def __init__(self, name):
-      interface.InputWidget.__init__(self, name)
+      eeact.InputWidget.__init__(self, name)
       QuerySession.__init__(self, self.manager)
 
    def new_session(self, on_success=None, on_error=None):
@@ -662,7 +661,7 @@ class MyInputWidget(interface.InputWidget, QuerySession):
       self.focus()
 
    def key_event(self, key):
-      if interface.InputWidget.key_event(self, key):
+      if eeact.InputWidget.key_event(self, key):
          return True
       if QuerySession.key_event(self, key):
          return True
@@ -706,35 +705,35 @@ def update_stats(man):
 def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
    l = GlobalBindings(
       "globals",
-      interface.InfoPopup(
+      eeact.InfoPopup(
          "infoPopup",
-         interface.PopupLayout(
+         eeact.PopupLayout(
             "inputPopup",
-            interface.PopupLayout(
+            eeact.PopupLayout(
                "modifyMoviePopup",
-               interface.SplitLayout(
+               eeact.SplitLayout(
                   "keyMainLayout",
-                  interface.SplitLayout.Alignment.VERTICAL,
-                  interface.ConstraintLayout(
-                     interface.BorderWrapperLayout(
+                  eeact.SplitLayout.Alignment.VERTICAL,
+                  eeact.ConstraintLayout(
+                     eeact.BorderWrapperLayout(
                         "lrt34",
-                        interface.SplitLayout(
+                        eeact.SplitLayout(
                            "mainLayout",
-                           interface.SplitLayout.Alignment.VERTICAL,
-                           interface.SplitLayout(
+                           eeact.SplitLayout.Alignment.VERTICAL,
+                           eeact.SplitLayout(
                               "mainMiddleLayout",
-                              interface.SplitLayout.Alignment.HORIZONTAL,
-                              interface.TabbedLayout(
+                              eeact.SplitLayout.Alignment.HORIZONTAL,
+                              eeact.TabbedLayout(
                                  "selectorTab",
                                  SelectorWidget("MAIN"),
                                  InspectionSelectorWidget("inspectionSelector")
                               ), 0.3,
-                              interface.BorderWrapperLayout(
+                              eeact.BorderWrapperLayout(
                                  "l",
                                  PreviewWidget("img")
                               ), 0.0
                            ), 0.0,
-                           interface.BorderWrapperLayout(
+                           eeact.BorderWrapperLayout(
                               "tb",
                               StatsWidget("videoStats")
                            ), 6
@@ -744,22 +743,22 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
                   ), 0.0,
                   KeyHelpWidget("keyHelp"), 1
                ),
-               interface.ConstraintLayout(
-                  interface.BorderWrapperLayout(
+               eeact.ConstraintLayout(
+                  eeact.BorderWrapperLayout(
                      "tblr",
-                     interface.SplitLayout(
+                     eeact.SplitLayout(
                         "modifyMovieLayout1",
-                        interface.SplitLayout.Alignment.VERTICAL,
-                        interface.BorderWrapperLayout(
+                        eeact.SplitLayout.Alignment.VERTICAL,
+                        eeact.BorderWrapperLayout(
                            "b",
                            TitleWidget("modifyTitle")
                         ), 2,
                         ModifyMovieQuery(
                            "modifyMovieQuery",
-                           interface.SplitLayout(
+                           eeact.SplitLayout(
                               "modifyMovieLayout2",
-                              interface.SplitLayout.Alignment.HORIZONTAL,
-                              interface.BorderWrapperLayout(
+                              eeact.SplitLayout.Alignment.HORIZONTAL,
+                              eeact.BorderWrapperLayout(
                                  "r",
                                  ModifyStarsWidget("modifyMovieStars")
                               ), 0.5,
@@ -772,12 +771,12 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
                   maxw=50
                )
             ),
-            interface.ConstraintLayout(
-               interface.BorderWrapperLayout(
+            eeact.ConstraintLayout(
+               eeact.BorderWrapperLayout(
                   "tblr",
-                  interface.SplitLayout(
+                  eeact.SplitLayout(
                      "inputLayout1",
-                     interface.SplitLayout.Alignment.VERTICAL,
+                     eeact.SplitLayout.Alignment.VERTICAL,
                      TitleWidget("inputTitle"), 1,
                      MyInputWidget("input"), 0.0
                   )
@@ -791,17 +790,17 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
       )
    )
 
-   with interface.Manager(l) as man:
-      man.init_color(1, interface.curses.COLOR_RED, -1)
-      man.init_color(2, interface.curses.COLOR_BLUE, -1)
-      man.init_color(3, interface.curses.COLOR_MAGENTA, -1)
-      man.init_color(4, interface.curses.COLOR_YELLOW, -1)
+   with eeact.Manager(l) as man:
+      man.init_color(1, eeact.curses.COLOR_RED, -1)
+      man.init_color(2, eeact.curses.COLOR_BLUE, -1)
+      man.init_color(3, eeact.curses.COLOR_MAGENTA, -1)
+      man.init_color(4, eeact.curses.COLOR_YELLOW, -1)
       man.add_color("key_highlight", 2)
       man.add_color("fancy_list_arrow", 1)
       man.add_color("list_highlight", 1)
       man.add_color("stats_key", 3)
       man.add_color("stats_starred", 4)
-      man.add_attr("input_cursor", interface.curses.A_REVERSE)
+      man.add_attr("input_cursor", eeact.curses.A_REVERSE)
       man.add_color("info_info", 2)
       man.add_color("info_warning", 4)
       man.add_color("info_error", 1)
