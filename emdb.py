@@ -14,156 +14,166 @@ from threading import Semaphore, Lock
 from functools import partial
 import random
 from backup_move import move_file
-import ueberzug.lib.v0 as ueberzug
+import asyncio
 
 # random io ###################################################################
-def play(path):
-   # TODO: everything isn't redrawn properly if the window changes
-   # size at the same time as this spawns
-   p = P.run(["mpv", path], stdout=P.DEVNULL, stdin=P.DEVNULL, stderr=P.DEVNULL, check=False)
-   return p.returncode == 0
+async def play(path):
+   proc = await asyncio.create_subprocess_exec(
+      "mpv",
+      path,
+      stdout=asyncio.subprocess.DEVNULL,
+      stdin=asyncio.subprocess.DEVNULL,
+      stderr=asyncio.subprocess.DEVNULL
+   )
+   return await proc.wait() == 0
 
 # commands from main widget ###################################################
 
-def remove_movie(man, sel):
+async def remove_movie(man, sel):
    if not sel:
       return
 
-   def no(man):
+   affirmative = await man.get_widget("infoPopup").show_question("Are you sure you want to delete this?")
+   if not affirmative:
       man.get_widget("MAIN").focus()
+      return
 
-   def yes(man):
-      sel.remove_self()
-      move_file(sel.get_path(), man["td"], src_folder=man["ad"])
+   sel.remove_self()
+   move_file(sel.get_path(), man["td"], src_folder=man["ad"])
 
-      mainWid = man.get_widget("MAIN")
-      mainWid.remove_selected()
-      mainWid.focus()
+   mainWid = man.get_widget("MAIN")
+   mainWid.remove_selected()
+   mainWid.focus()
 
-   man.get_widget("infoPopup").show_question("Are you sure you want to delete this?", yes_call=yes, no_call=no)
-
-def add_inspection(man, sel):
+async def add_inspection(man, sel):
    if not sel:
       return
 
-   def err(manager):
-      manager.get_widget("inspectionSelector").focus()
-
-   def succ(manager):
-      newName = move_file(sel, man["ad"], src_folder=man["id"])
-      stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
-      tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
-      newMovie = man["db"].add_movie(newName, "", False, stars, tags)
-
-      manager.get_widget("MAIN").add(newMovie)
-
-      insp = manager.get_widget("inspectionSelector")
-      insp.remove_selected()
-      insp.focus()
-
-   man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
+   fut = man.get_widget("modifyMovieQuery").new_session()
    man.get_widget("modifyTitle").set_title(sel)
 
-def start_inspection(man):
-   allCandidates = os.listdir(man["bd"])
-   if not allCandidates:
-      man.get_widget("infoPopup").show_info("No videos in buffer", kind=eeact.InfoPopup.ERROR)
+   if not await fut:
+      man.get_widget("inspectionSelector").focus()
       return
 
+   newName = move_file(sel, man["ad"], src_folder=man["id"])
+   stars = [s.get_id() for s in man.get_widget("modifyMovieStars").get_highlighted()]
+   tags = [t.get_id() for t in man.get_widget("modifyMovieTags").get_highlighted()]
+   newMovie = man["db"].add_movie(newName, "", False, stars, tags)
+
+   man.get_widget("MAIN").add(newMovie)
+
+   insp = man.get_widget("inspectionSelector")
+   insp.remove_selected()
+   insp.focus()
+
+async def start_inspection(man):
+   # check if candidates
+   allCandidates = os.listdir(man["bd"])
+   if not allCandidates:
+      await man.get_widget("infoPopup").show_info("No videos in buffer", severity=eeact.InfoPopup.ERROR)
+      man.get_widget("MAIN").focus()
+      return
+
+   # pick, move and play a random one
    randChoice = random.choice(allCandidates)
-
    randChoice = move_file(randChoice, man["id"], src_folder=man["bd"])
-   play(os.path.join(man["id"], randChoice))
+   man.get_widget("infoPopup").show_blocked("waiting for mpv...")
+   await play(os.path.join(man["id"], randChoice))
+   man.refresh_event.set()
 
-   def no(man):
+   # keep?
+   keep = await man.get_widget("infoPopup").show_question("Want to keep?")
+   if not keep:
       move_file(randChoice, man["td"], src_folder=man["id"])
       man.get_widget("MAIN").focus()
+      return
 
-   def yes(man):
-      def err(manager):
-         manager.get_widget("MAIN").focus()
+   # choose stars and tags
+   fut = man.get_widget("modifyMovieQuery").new_session()
+   man.get_widget("modifyTitle").set_title(randChoice)
+   if not await fut:
+      man.get_widget("MAIN").focus()
+      return
 
-      def succ(manager):
-         newName = move_file(randChoice, man["ad"], src_folder=man["id"])
-         stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
-         tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
-         newMovie = man["db"].add_movie(newName, "", False, stars, tags)
+   # add to db and stuff
+   newName = move_file(randChoice, man["ad"], src_folder=man["id"])
+   stars = [s.get_id() for s in man.get_widget("modifyMovieStars").get_highlighted()]
+   tags = [t.get_id() for t in man.get_widget("modifyMovieTags").get_highlighted()]
+   newMovie = man["db"].add_movie(newName, "", False, stars, tags)
 
-         mainWid = manager.get_widget("MAIN")
-         mainWid.add(newMovie)
-         mainWid.focus()
+   # focus main
+   mainWid = man.get_widget("MAIN")
+   mainWid.add(newMovie)
+   mainWid.focus()
 
-      man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
-      man.get_widget("modifyTitle").set_title(randChoice)
-
-   man.get_widget("infoPopup").show_question("Want to keep?", yes_call=yes, no_call=no)
-
-def modify_selected(man, sel):
+async def modify_selected(man, sel):
    if not sel:
       return
    filename = sel.get_path()
 
-   def err(manager):
-      manager.get_widget("MAIN").focus()
-
-   def succ(manager):
-      stars = [s.get_id() for s in manager.get_widget("modifyMovieStars").get_highlighted()]
-      tags = [t.get_id() for t in manager.get_widget("modifyMovieTags").get_highlighted()]
-      sel.set_stars(stars)
-      sel.set_tags(tags)
-
-      manager.get_widget("videoStats").update()
-      manager.get_widget("MAIN").focus()
-
-   man.get_widget("modifyMovieQuery").new_session(on_error=err, on_success=succ)
+   fut = man.get_widget("modifyMovieQuery").new_session()
    man.get_widget("modifyTitle").set_title(filename)
    man.get_widget("modifyMovieStars").highlight_by(lambda x: x in sel.get_stars())
    man.get_widget("modifyMovieTags").highlight_by(lambda x: x in sel.get_tags())
 
-def add_star(man):
-   def err(manager):
-      manager.get_widget("MAIN").focus()
-   def succ(manager):
-      manager.get_widget("MAIN").focus()
-      inp = manager.get_widget("input")
-      val = inp.get_input()
-      if val:
-         manager["db"].add_star(val)
+   man.refresh_event.set()
+   ok = await fut
 
+   if ok:
+      stars = [s.get_id() for s in man.get_widget("modifyMovieStars").get_highlighted()]
+      tags = [t.get_id() for t in man.get_widget("modifyMovieTags").get_highlighted()]
+      sel.set_stars(stars)
+      sel.set_tags(tags)
+
+      man.get_widget("videoStats").update()
+      man.get_widget("MAIN").focus()
+   else:
+      man.get_widget("MAIN").focus()
+
+async def add_star(man):
    man.get_widget("inputTitle").set_title("Add new star")
-   man.get_widget("input").new_session(on_error=err, on_success=succ)
+   if not await man.get_widget("input").new_session():
+      man.get_widget("MAIN").focus()
+      return
 
-def add_tag(man):
-   def err(manager):
-      manager.get_widget("MAIN").focus()
-   def succ(manager):
-      manager.get_widget("MAIN").focus()
-      inp = manager.get_widget("input")
-      val = inp.get_input()
-      if val:
-         manager["db"].add_tag(val)
+   man.get_widget("MAIN").focus()
+   inp = man.get_widget("input")
+   val = inp.get_input()
+   if val:
+      man["db"].add_star(val)
 
+async def add_tag(man):
    man.get_widget("inputTitle").set_title("Add new tag")
-   man.get_widget("input").new_session(on_error=err, on_success=succ)
+   if not await man.get_widget("input").new_session():
+      man.get_widget("MAIN").focus()
+      return
 
-def set_name_selected(man, sel):
+   man.get_widget("MAIN").focus()
+   inp = man.get_widget("input")
+   val = inp.get_input()
+   if val:
+      man["db"].add_tag(val)
+
+async def set_name_selected(man, sel):
    if not sel:
       return
 
-   def err(manager):
-      manager.get_widget("MAIN").focus()
-   def succ(manager):
-      inp = manager.get_widget("input")
-      val = inp.get_input()
-      sel.set_name(val)
-      mai = manager.get_widget("MAIN")
-      mai.refresh()
-      mai.focus()
-
    man.get_widget("inputTitle").set_title("Set name")
    inp = man.get_widget("input")
-   inp.new_session(on_error=err, on_success=succ)
+   fut = inp.new_session()
    inp.set_initial_input(sel.get_disp())
+
+   if not await fut:
+      man.get_widget("MAIN").focus()
+      return
+
+   inp = man.get_widget("input")
+   val = inp.get_input()
+   sel.set_name(val)
+   mai = man.get_widget("MAIN")
+   mai.refresh()
+   mai.focus()
 
 def toggle_starred(man, sel):
    if not sel:
@@ -178,45 +188,44 @@ def copy_selected(man, sel):
       from pyperclip import copy
       copy(sel.get_path())
    except ModuleNotFoundError:
-      man.get_widget("infoPopup").show_info("Can't find pyperclip", kind=eeact.InfoPopup.WARNING)
+      man.get_widget("infoPopup").show_info("Can't find pyperclip", severity=eeact.InfoPopup.WARNING)
 
-def selector_search(man):
-   def err(manager):
-      manager.get_widget("MAIN").focus()
-   def succ(manager):
-      mai = manager.get_widget("MAIN")
-      mai.focus()
-      inp = manager.get_widget("input")
-      val = inp.get_input()
-      if val:
-         try:
-            sear = database.Search(val)
-            mai.filter_by(sear.match)
-         except database.Search.ParseError as e:
-            man.get_widget("infoPopup").show_info(str(e), kind=eeact.InfoPopup.ERROR)
-      else:
-         mai.clear_filter()
-
+async def selector_search(man):
    man.get_widget("inputTitle").set_title("Search for:")
-   man.get_widget("input").new_session(on_error=err, on_success=succ)
+   if not await man.get_widget("input").new_session():
+      man.get_widget("MAIN").focus()
+      return
+
+   mai = man.get_widget("MAIN")
+   mai.focus()
+   inp = man.get_widget("input")
+   val = inp.get_input()
+   if val:
+      try:
+         sear = database.Search(val)
+         mai.filter_by(sear.match)
+      except database.Search.ParseError as e:
+         man.get_widget("infoPopup").show_info(str(e), severity=eeact.InfoPopup.ERROR)
+   else:
+      mai.clear_filter()
 
 # widgets #####################################################################
 class QuerySession():
    def __init__(self, manager):
-      self.on_success = lambda _: None
-      self.on_error = lambda _: None
+      self.fut = None
       self.manager = manager
       self.key_help = {"ESC": "abort", "RET": "confirm"}
 
-   def new_session(self, on_success=None, on_error=None):
-      self.on_success = on_success if on_success else lambda s: None
-      self.on_error = on_error if on_error else lambda s: None
+   def new_session(self):
+      loop = asyncio.get_running_loop()
+      self.fut = loop.create_future()
+      return self.fut
 
    def key_event(self, key):
       if key == eeact.ca.NL:
-         self.on_success(self.manager)
+         self.fut.set_result(True)
       elif key == eeact.ca.ESC:
-         self.on_error(self.manager)
+         self.fut.set_result(False)
       else:
          return False
       return True
@@ -275,6 +284,11 @@ class KeyHelpWidget(eeact.Widget):
       self.touch()
 
    def _generate_help_string(self):
+      if not self.key_helps:
+         self.value = []
+         self.value_len = 0
+         return
+
       formstr = []
 
       for k,v in self.key_helps.items():
@@ -418,12 +432,13 @@ class ModifyMovieQuery(eeact.WrapperLayout, QuerySession):
       eeact.WrapperLayout.__init__(self, name, widget)
       QuerySession.__init__(self, self.manager)
 
-   def new_session(self, on_success=None, on_error=None):
-      super().new_session(on_success, on_error)
+   def new_session(self):
+      fut = super().new_session()
       stars = self.manager.get_widget("modifyMovieStars")
       stars.clear()
       stars.focus()
       self.manager.get_widget("modifyMovieTags").clear()
+      return fut
 
    def key_event(self, key):
       if eeact.WrapperLayout.key_event(self, key):
@@ -501,15 +516,15 @@ class SelectorWidget(eeact.FancyListWidget):
          return True
 
       if key == ord('i'):
-         start_inspection(self.manager)
+         asyncio.create_task(start_inspection(self.manager))
       elif key == ord('d'):
          sel = self.get_selected()
          if sel:
-            remove_movie(self.manager, sel)
+            asyncio.create_task(remove_movie(self.manager, sel))
       elif key == ord('p'):
-         add_star(self.manager)
+         asyncio.create_task(add_star(self.manager))
       elif key == ord('t'):
-         add_tag(self.manager)
+         asyncio.create_task(add_tag(self.manager))
       elif key == ord('o'):
          self.sort_next()
       elif key == ord('s'):
@@ -518,22 +533,22 @@ class SelectorWidget(eeact.FancyListWidget):
          sel = self.get_selected()
          if not sel:
             return
-         play(os.path.join(self.manager["ad"], sel.get_path()))
+         asyncio.create_task(play(os.path.join(self.manager["ad"], sel.get_path())))
       elif key == ord('m'):
-         modify_selected(self.manager, self.get_selected())
+         asyncio.create_task(modify_selected(self.manager, self.get_selected()))
       elif key == ord('y'):
          copy_selected(self.manager, self.get_selected())
       elif key == ord('n'):
-         set_name_selected(self.manager, self.get_selected())
+         asyncio.create_task(set_name_selected(self.manager, self.get_selected()))
       elif key == eeact.ca.TAB:
          self.manager.get_widget("inspectionSelector").focus()
       elif key == ord('f'):
-         selector_search(self.manager)
+         asyncio.create_task(selector_search(self.manager))
       elif key == ord('r'):
          vis = self.get_visible()
          if vis:
             ra = random.choice(vis)
-            play(os.path.join(self.manager["ad"], ra.get_path()))
+            asyncio.create_task(play(os.path.join(self.manager["ad"], ra.get_path())))
       else:
          return False
       return True
@@ -559,9 +574,9 @@ class InspectionSelectorWidget(eeact.FancyListWidget):
          sel = self.get_selected()
          if not sel:
             return
-         play(os.path.join(self.manager["id"], sel))
+         asyncio.create_task(play(os.path.join(self.manager["id"], sel)))
       elif key == ord('a'):
-         add_inspection(self.manager, self.get_selected())
+         asyncio.create_task(add_inspection(self.manager, self.get_selected()))
       elif key == ord('d'):
          sel = self.get_selected()
          if sel:
@@ -616,7 +631,8 @@ class PreviewWidget(eeact.ImageWidget):
          self.thumb_queue.append((infile, outfile))
 
          if self.thumbnailer_sem.acquire(blocking=False):
-            self.manager.start_bg_job(self._thumbnailer_thread)
+            pass
+            # self.manager.start_bg_job(self._thumbnailer_thread)
 
    def _thumbnailer_thread(self, lock, queue):
       try:
@@ -655,10 +671,11 @@ class MyInputWidget(eeact.InputWidget, QuerySession):
       eeact.InputWidget.__init__(self, name)
       QuerySession.__init__(self, self.manager)
 
-   def new_session(self, on_success=None, on_error=None):
-      super().new_session(on_success, on_error)
+   def new_session(self):
+      fut = super().new_session()
       self.clear()
       self.focus()
+      return fut
 
    def key_event(self, key):
       if eeact.InputWidget.key_event(self, key):
@@ -672,10 +689,12 @@ class MyInputWidget(eeact.InputWidget, QuerySession):
 def global_key_help_hook(man):
    # haxxa in key_help
    infoPopup = man.get_widget("infoPopup_InfoWidget")
-   if infoPopup.yesno:
+   if infoPopup.kind == eeact.InfoPopup.YESNO:
       infoPopup.key_help = {"y": "yes", "n": "no"}
-   else:
+   elif infoPopup.kind == eeact.InfoPopup.OKESC:
       infoPopup.key_help = {"RET/y": "ok"}
+   else:
+      infoPopup.key_help = {}
    infoPopup.key_help.update({k:"" for k in man.get_widget("globals").key_help})
 
    keys = {}
@@ -790,31 +809,32 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
       )
    )
 
-   with eeact.Manager(l) as man:
-      man.init_color(1, eeact.curses.COLOR_RED, -1)
-      man.init_color(2, eeact.curses.COLOR_BLUE, -1)
-      man.init_color(3, eeact.curses.COLOR_MAGENTA, -1)
-      man.init_color(4, eeact.curses.COLOR_YELLOW, -1)
-      man.add_color("key_highlight", 2)
-      man.add_color("fancy_list_arrow", 1)
-      man.add_color("list_highlight", 1)
-      man.add_color("stats_key", 3)
-      man.add_color("stats_starred", 4)
-      man.add_attr("input_cursor", eeact.curses.A_REVERSE)
-      man.add_color("info_info", 2)
-      man.add_color("info_warning", 4)
-      man.add_color("info_error", 1)
-      man.on_any_event(global_key_help_hook)
-      man.on_any_event(update_stats)
-      man["id"] = inspectdir
-      man["ad"] = archivedir
-      man["bd"] = bufferdir
-      man["cd"] = cachedir
-      man["td"] = trashdir
+   man = eeact.Manager(l)
 
-      from contextlib import closing
-      with closing(database.Database(dbfile)) as db, ueberzug.Canvas() as canvas:
-         man["db"] = db
-         man["ueber"] = canvas
-         man.start()
+   man.init_color(1, eeact.curses.COLOR_RED, -1)
+   man.init_color(2, eeact.curses.COLOR_BLUE, -1)
+   man.init_color(3, eeact.curses.COLOR_MAGENTA, -1)
+   man.init_color(4, eeact.curses.COLOR_YELLOW, -1)
+   man.add_color("key_highlight", 2)
+   man.add_color("fancy_list_arrow", 1)
+   man.add_color("list_highlight", 1)
+   man.add_color("stats_key", 3)
+   man.add_color("stats_starred", 4)
+   man.add_attr("input_cursor", eeact.curses.A_REVERSE)
+   man.add_color("info_info", 2)
+   man.add_color("info_warning", 4)
+   man.add_color("info_error", 1)
+   man.add_color("info_block", 1)
+   man.on_any_event(global_key_help_hook)
+   man.on_any_event(update_stats)
+   man["id"] = inspectdir
+   man["ad"] = archivedir
+   man["bd"] = bufferdir
+   man["cd"] = cachedir
+   man["td"] = trashdir
+
+   from contextlib import closing
+   with closing(database.Database(dbfile)) as db:
+      man["db"] = db
+      man.start(ueber=True)
 

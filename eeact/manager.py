@@ -1,10 +1,7 @@
 import curses
 import curses.panel as cp
-import os
-from time import monotonic_ns
-from threading import Thread, Lock
-from collections import deque
 import ueberzug.lib.v0 as ueberzug
+import asyncio
 
 # pylint: disable=protected-access
 class Manager():
@@ -17,12 +14,9 @@ class Manager():
       self.global_hook = []
       self.current_focus = None
       self.global_vars = {}
-      self.stdscr = None
-      self.event_queue = deque()
-      self.event_lock = Lock()
-      self.bg_jobs = []
-      self.curses_blocking = True
-      self.idle_jobs = []
+      self.ueber = None
+      self.refresh_event = None
+      self.startup_jobs = []
 
    def __getitem__(self, key):
       return self.global_vars[key]
@@ -33,27 +27,6 @@ class Manager():
    def __delitem__(self, key):
       del self.global_vars[key]
 
-   def __enter__(self):
-      os.environ.setdefault('ESCDELAY', '0')
-      self.stdscr = curses.initscr()
-      curses.noecho()
-      curses.cbreak()
-      self.stdscr.keypad(True)
-      try:
-         curses.start_color()
-         curses.use_default_colors()
-      except:
-         pass
-      return self
-
-   def __exit__(self, _exc_type, _exc_value, _traceback):
-      if self.stdscr:
-         self.stdscr.keypad(0)
-         curses.echo()
-         curses.nocbreak()
-         curses.endwin()
-      return False
-
    def on_any_event(self, f):
       self.global_hook.append(f)
 
@@ -63,10 +36,10 @@ class Manager():
       return self.widgets[name]
 
    def init_color(self, index, fg, bg):
-      curses.init_pair(index, fg, bg)
+      self.startup_jobs.append(lambda: curses.init_pair(index, fg, bg))
 
    def add_color(self, name, index):
-      self.add_attr(name, curses.color_pair(index))
+      self.startup_jobs.append(lambda: self.add_attr(name, curses.color_pair(index)))
 
    def add_attr(self, name, attr):
       self.attr_names[name] = attr
@@ -91,24 +64,35 @@ class Manager():
    def get_focused(self):
       return self.current_focus
 
-   def start_bg_job(self, f, *args):
-      fixed_args = (self.event_lock, self.event_queue)
-      t = Thread(daemon=True, target=f, args=(*fixed_args, *args))
-      t.start()
-      self.bg_jobs.append(t)
+   def start(self, ueber=False):
+      def ueber_wrapper(f):
+         if ueber:
+            with ueberzug.Canvas() as canvas:
+               self.ueber = canvas
+               f()
+         else:
+            f()
 
-   def start_idle_job(self, f, *args):
-      self.idle_jobs.append(f)
-
-   def start(self):
-      self._main_fun(self.stdscr)
+      ueber_wrapper(
+         lambda: curses.wrapper(lambda stdscr: asyncio.run(self._main_fun(stdscr)))
+      )
 
    def stop(self):
       self.running = False
 
-   def _main_fun(self, stdscr):
+   async def _main_fun(self, stdscr):
       curses.curs_set(False)
       stdscr.immedok(False)
+      curses.use_default_colors()
+      stdscr.timeout(100)
+
+      for f in self.startup_jobs:
+         f()
+      self.startup_jobs.clear()
+
+      self.refresh_event = asyncio.Event()
+      loop = asyncio.get_running_loop()
+      loop.call_soon(self._read_keys, stdscr, loop)
 
       maxy, maxx = stdscr.getmaxyx()
       self.layout._init(0, 0, maxx, maxy, self, None)
@@ -126,44 +110,27 @@ class Manager():
          cp.update_panels()
          curses.doupdate()
 
-         self._get_event(stdscr)
+         await self.refresh_event.wait()
+         self.refresh_event.clear()
 
-   def _get_event(self, stdscr):
-      start = monotonic_ns()
-      while True:
-         self.bg_jobs = [j for j in self.bg_jobs if j.is_alive()]
-         with self.event_lock:
-            update = False
-            while self.event_queue:
-               update |= self.event_queue.popleft()(self)
+   def _read_keys(self, stdscr, loop):
+      # loop = asyncio.get_running_loop()
+      # NOTE: resize funkade inte pga signals o threads
+      # https://stackoverflow.com/questions/53822353/where-does-curses-inject-key-resize-on-endwin-and-refresh
+      # k = await loop.run_in_executor(None, stdscr.getch)
 
-            if update:
-               break
+      if not self.running:
+         return
 
-         if self.idle_jobs and monotonic_ns() - start > 40*1000000:
-            update = False
-            while self.idle_jobs:
-               update |= self.idle_jobs.pop()(self)
+      k = stdscr.getch()
+      if k == -1:
+         pass
+      elif k == curses.KEY_RESIZE:
+         maxy, maxx = stdscr.getmaxyx()
+         self.layout._resize(0, 0, maxx, maxy)
+         self.refresh_event.set()
+      else:
+         if self.layout._key_event(k):
+            self.refresh_event.set()
 
-            if update:
-               break
-
-         if not self.bg_jobs and not self.idle_jobs:
-            if not self.curses_blocking:
-               stdscr.timeout(-1)
-               self.curses_blocking = True
-         else:
-            if self.curses_blocking:
-               stdscr.timeout(50)
-               self.curses_blocking = False
-
-         k = stdscr.getch()
-         if k == -1:
-            continue
-         elif k == curses.KEY_RESIZE:
-            maxy, maxx = stdscr.getmaxyx()
-            self.layout._resize(0, 0, maxx, maxy)
-            break
-         else:
-            if self.layout._key_event(k):
-               break
+      loop.call_soon(self._read_keys, stdscr, loop)

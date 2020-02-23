@@ -13,10 +13,11 @@ class ImageWidget(Widget):
    #pylint: disable=arguments-differ
    def _init(self, *args):
       super()._init(*args)
-      self.img = self.manager["ueber"].create_placement(
-         self.name,
-         scaler=ueberzug.ScalerOption.FIT_CONTAIN.value
-      )
+      if self.manager.ueber:
+         self.img = self.manager.ueber.create_placement(
+            self.name,
+            scaler=ueberzug.ScalerOption.FIT_CONTAIN.value
+         )
 
    def _covered(self, covered):
       super()._covered(covered)
@@ -34,8 +35,11 @@ class ImageWidget(Widget):
       self.touch()
 
    def draw(self, win):
+      if self.img is None:
+         return
+
       if self.path and not self.covered:
-         with self.manager["ueber"].lazy_drawing:
+         with self.manager.ueber.lazy_drawing:
             self.img.x = self.x
             self.img.y = self.y
             self.img.width = self.w
