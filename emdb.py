@@ -15,6 +15,7 @@ from functools import partial
 import random
 from backup_move import move_file
 import asyncio
+from hashlib import md5
 
 # random io ###################################################################
 async def play(path):
@@ -593,13 +594,18 @@ class PreviewWidget(eeact.ImageWidget):
    def __init__(self, name):
       super().__init__(name)
       self.movie_path = None
-      self.intended_path = ""
-      self.thumbnailer_sem = Semaphore(2)
-      self.thumb_queue_lock = Lock()
-      self.thumb_queue = deque(maxlen=4)
-      self.thumb = "ffmpegthumbnailer"
+      self.thumb_exec = "ffmpegthumbnailer"
+      self.task = None
 
-   def preview(self, movie_path, moviedir):
+   def _hash_name(self, path):
+      m = md5()
+      # m.update(self.manager["cd"].encode())
+      m.update(path.encode())
+      cachename = m.hexdigest() + ".jpg"
+      cachename = os.path.join(self.manager["cd"], cachename)
+      return cachename
+
+   def preview(self, movie_path):
       if self.movie_path == movie_path:
          return
       self.movie_path = movie_path
@@ -608,63 +614,39 @@ class PreviewWidget(eeact.ImageWidget):
          self.clear_image()
          return
 
-      from hashlib import md5
-      m = md5()
-      m.update(self.manager["cd"].encode())
-      m.update(self.movie_path.encode())
-      cachename = m.hexdigest() + ".jpg"
-      cachename = os.path.join(self.manager["cd"], cachename)
-
-      self.intended_path = cachename
-
-      if not os.path.isfile(cachename):
-         self.clear_image()
-         self._start_thumbnailer(os.path.join(moviedir, self.movie_path), cachename)
-      else:
+      cachename = self._hash_name(movie_path)
+      if os.path.isfile(cachename):
          self.set_image(cachename)
+      else:
+         self.clear_image()
+         if self.task is None or self.task.done():
+            self.task = asyncio.create_task(self._start_thumbnailer(self.movie_path))
 
-   def _start_thumbnailer(self, infile, outfile):
-      if not shutil.which(self.thumb):
+   async def _start_thumbnailer(self, movie_path):
+      if not shutil.which(self.thumb_exec):
          return
 
-      with self.thumb_queue_lock:
-         self.thumb_queue.append((infile, outfile))
+      cachename = self._hash_name(movie_path)
 
-         if self.thumbnailer_sem.acquire(blocking=False):
-            pass
-            # self.manager.start_bg_job(self._thumbnailer_thread)
+      if os.path.isfile(cachename):
+         return
 
-   def _thumbnailer_thread(self, lock, queue):
-      try:
-         while True:
-            with self.thumb_queue_lock:
-               if not self.thumb_queue:
-                  break
-               inf, outf = self.thumb_queue.pop()
-            P.run(
-               [
-                  self.thumb,
-                  "-i",
-                  inf,
-                  "-o",
-                  outf,
-                  "-s", "0"
-               ],
-               stdin=P.DEVNULL,
-               stdout=P.DEVNULL,
-               stderr=P.DEVNULL,
-               check=False
-            )
-            def callback(outfile, _man):
-               if self.intended_path == outfile:
-                  self.set_image(outfile)
-                  return True
-               return False
+      proc = await asyncio.create_subprocess_exec(
+         self.thumb_exec,
+         "-i", movie_path,
+         "-o", cachename,
+         "-s", "0",
+         stdout=asyncio.subprocess.DEVNULL,
+         stdin=asyncio.subprocess.DEVNULL,
+         stderr=asyncio.subprocess.DEVNULL
+      )
+      await proc.wait()
 
-            with lock:
-               queue.append(partial(callback, outf))
-      finally:
-         self.thumbnailer_sem.release()
+      if self.movie_path == movie_path:
+         self.set_image(cachename)
+         self.manager.refresh_event.set()
+      else:
+         await self._start_thumbnailer(self.movie_path)
 
 class MyInputWidget(eeact.InputWidget, QuerySession):
    def __init__(self, name):
@@ -712,12 +694,12 @@ def update_stats(man):
    ins = man.get_widget("inspectionSelector")
    if not mai.is_hidden() and mai.get_selected():
       man.get_widget("videoStats").set_movie(mai.get_selected())
-      man.get_widget("img").preview(mai.get_selected().get_path(), man["ad"])
+      man.get_widget("img").preview(os.path.join(man["ad"], mai.get_selected().get_path()))
    elif not ins.is_hidden() and ins.get_selected():
       man.get_widget("videoStats").clear()
-      man.get_widget("img").preview(ins.get_selected(), man["id"])
+      man.get_widget("img").preview(os.path.join(man["id"], ins.get_selected()))
    else:
-      man.get_widget("img").preview(None, None)
+      man.get_widget("img").preview(None)
 
 # main ########################################################################
 
