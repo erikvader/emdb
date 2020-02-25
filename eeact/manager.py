@@ -2,6 +2,7 @@ import curses
 import curses.panel as cp
 import ueberzug.lib.v0 as ueberzug
 import asyncio
+from os import get_terminal_size
 
 # pylint: disable=protected-access
 class Manager():
@@ -17,6 +18,7 @@ class Manager():
       self.ueber = None
       self.refresh_event = None
       self.startup_jobs = []
+      self.screen_size = (0, 0)
 
    def __getitem__(self, key):
       return self.global_vars[key]
@@ -91,10 +93,14 @@ class Manager():
       self.startup_jobs.clear()
 
       self.refresh_event = asyncio.Event()
+      asyncio.create_task(self._read_keys(stdscr))
+
       loop = asyncio.get_running_loop()
-      loop.call_soon(self._read_keys, stdscr, loop)
+      from signal import SIGWINCH
+      loop.add_signal_handler(SIGWINCH, self._handle_resize)
 
       maxy, maxx = stdscr.getmaxyx()
+      self.screen_size = (maxy, maxx)
       self.layout._init(0, 0, maxx, maxy, self, None)
 
       self.get_widget("MAIN").focus()
@@ -106,31 +112,30 @@ class Manager():
 
          self.layout._draw()
 
-         curses.update_lines_cols()
          cp.update_panels()
          curses.doupdate()
 
          await self.refresh_event.wait()
          self.refresh_event.clear()
 
-   def _read_keys(self, stdscr, loop):
-      # loop = asyncio.get_running_loop()
-      # NOTE: resize funkade inte pga signals o threads
-      # https://stackoverflow.com/questions/53822353/where-does-curses-inject-key-resize-on-endwin-and-refresh
-      # k = await loop.run_in_executor(None, stdscr.getch)
+   async def _read_keys(self, stdscr):
+      loop = asyncio.get_running_loop()
 
-      if not self.running:
-         return
+      while self.running:
+         k = await loop.run_in_executor(None, stdscr.getch)
 
-      k = stdscr.getch()
-      if k == -1:
-         pass
-      elif k == curses.KEY_RESIZE:
-         maxy, maxx = stdscr.getmaxyx()
-         self.layout._resize(0, 0, maxx, maxy)
+         if k == -1:
+            pass
+         elif k == curses.KEY_RESIZE:
+            pass
+         else:
+            if self.layout._key_event(k):
+               self.refresh_event.set()
+
+   def _handle_resize(self):
+      curx, cury = get_terminal_size()
+      if self.screen_size != (cury, curx):
+         self.screen_size = (cury, curx)
+         curses.resizeterm(cury, curx)
+         self.layout._resize(0, 0, curx, cury)
          self.refresh_event.set()
-      else:
-         if self.layout._key_event(k):
-            self.refresh_event.set()
-
-      loop.call_soon(self._read_keys, stdscr, loop)
