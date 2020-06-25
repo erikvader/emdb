@@ -182,14 +182,15 @@ def toggle_starred(man, sel):
    sel.set_starred(not sel.is_starred())
    man.get_widget("videoStats").update()
 
-def copy_selected(man, sel):
+async def copy_selected(man, sel):
    if not sel:
       return
    try:
       from pyperclip import copy
       copy(sel.get_path())
    except ModuleNotFoundError:
-      man.get_widget("infoPopup").show_info("Can't find pyperclip", severity=eeact.InfoPopup.WARNING)
+      await man.get_widget("infoPopup").show_info("Can't find pyperclip", severity=eeact.InfoPopup.WARNING)
+      man.get_widget("MAIN").focus()
 
 async def selector_search(man):
    man.get_widget("inputTitle").set_title("Search for:")
@@ -206,7 +207,8 @@ async def selector_search(man):
          sear = database.Search(val)
          mai.filter_by(sear.match)
       except database.Search.ParseError as e:
-         man.get_widget("infoPopup").show_info(str(e), severity=eeact.InfoPopup.ERROR)
+         await man.get_widget("infoPopup").show_info(str(e), severity=eeact.InfoPopup.ERROR)
+         mai.focus()
    else:
       mai.clear_filter()
 
@@ -538,7 +540,7 @@ class SelectorWidget(eeact.FancyListWidget):
       elif key == ord('m'):
          asyncio.create_task(modify_selected(self.manager, self.get_selected()))
       elif key == ord('y'):
-         copy_selected(self.manager, self.get_selected())
+         asyncio.create_task(copy_selected(self.manager, self.get_selected()))
       elif key == ord('n'):
          asyncio.create_task(set_name_selected(self.manager, self.get_selected()))
       elif key == eeact.ca.TAB:
