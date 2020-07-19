@@ -3,7 +3,7 @@ import sqlite3 as S
 from contextlib import contextmanager, closing
 import re
 from collections import deque
-from itertools import chain
+from itertools import chain, dropwhile
 
 def _glob_to_regex(glob):
    reg = re.escape(glob)
@@ -100,6 +100,15 @@ class Database:
          tuple(vals + [values[key]])
       )
 
+   def _get_all_join(self, cursor, table1, id1, table2, id2):
+      res = cursor.execute(
+         "select * from {} as t1 inner join {} as t2 on t1.{} = t2.{}".format(
+            table1, table2, id1, id2
+         )
+      )
+      # TODO: what if the tables share a common column name?
+      return [{n[0]: v for n,v in zip(cursor.description, r)} for r in res]
+
    # links ####################################################################
    def _unlink(self, cursor, mid, pid=None, tid=None):
       tpid, tpid_name, table = Database._tpid(pid, tid)
@@ -149,24 +158,10 @@ class Database:
       res = self._get_all_from(cursor, "Tagging", "mid = {}".format(mid))
       return [r["tid"] for r in res]
 
-   def _get_derived_tags_for(self, cursor, mid):
-      queue = self._get_tags_for(cursor, mid)
-      visited = set()
-      while queue:
-         eid = queue.pop(0)
-         visited.add(eid)
-         subs = self._get_all_from(cursor, "Tag", "subsetof = {}".format(eid))
-         subs = (s["id"] for s in subs)
-         for s in subs:
-            if s not in visited:
-               queue.append(s)
-
-      return list(visited)
-
    def _get_superset_tags_for(self, cursor, mid):
       tags = self._get_tags_for(cursor, mid)
       all_supers = self._get_tags_supersets(cursor, tags)
-      return list(chain(tags, all_supers))
+      return set(chain(tags, all_supers))
 
    def _get_tag_info(self, cursor, tid):
       res = self._get_all_from(cursor, "Tag", "id = {}".format(tid))
@@ -175,20 +170,33 @@ class Database:
       raise self.DBError("tid {} doesn't exist".format(tid))
 
    def _get_tags_supersets(self, c, tags):
-      def find_supersets(tid):
-         while True:
-            tid = self._get_tag_info(c, tid)["subsetof"]
-            if tid:
-               yield tid
-            else:
-               break
+      initial = " union ".join("select {}".format(t) for t in tags)
 
-      all_supers = chain.from_iterable(find_supersets(t) for t in tags)
-      return set(all_supers)
+      res = c.execute(
+         '''
+         with recursive
+           sup(x) as (
+             {}
+             union all
+             select Tag.subsetof
+             from Tag
+             join sup on sup.x = Tag.id
+             where Tag.subsetof is not null
+           )
+         select x from sup
+         '''.format(initial)
+      )
+
+      return set(
+         x[1] for x in dropwhile(
+            lambda x: x[0] < len(tags),
+            enumerate(x[0] for x in res)
+         )
+      )
 
    def _remove_redundant_tags(self, c, tags):
       all_supers = self._get_tags_supersets(c, tags)
-      return [t for t in tags if not t in all_supers]
+      return [t for t in tags if t not in all_supers]
 
    # public interface #########################################################
    def add_movie(self, filename, name, starred, stars, tags):
@@ -236,10 +244,59 @@ class Database:
       with self._transaction() as c:
          self._add_tag(c, name, subsetof)
 
-   def get_movies(self, mid=None):
+   def _get_lazy_stars(self, c):
+      stars = {}
+      for x in self._get_all_join(c, "Starring", "pid", "Star", "id"):
+         s = Star(x)
+         if x["mid"] in stars:
+            stars[x["mid"]].append(s)
+         else:
+            stars[x["mid"]] = [s]
+      return stars
+
+   def _get_lazy_tags(self, c):
+      tags = {}
+      for x in self._get_all_join(c, "Tagging", "tid", "Tag", "id"):
+         s = Tag(x)
+         if x["mid"] in tags:
+            tags[x["mid"]].append(s)
+         else:
+            tags[x["mid"]] = [s]
+      return tags
+
+   def _get_lazy_superset_tags(self, c, all_tags):
+      supersets = {}
+      Tags = {}
+      for t in self._get_all_from(c, "Tag"):
+         supersets[t["id"]] = self._get_tags_supersets(c, [t["id"]])
+         Tags[t["id"]] = Tag(t)
+
+      movie_supersets = {}
+      for mid, tags in all_tags.items():
+         tmp = set(chain.from_iterable(supersets[t.get_id()] for t in tags))
+         movie_supersets[mid] = tags + [Tags[t] for t in tmp]
+
+      return movie_supersets
+
+   def get_movies(self, mid=None, lazy=True):
       with self._cursor() as c:
          movies = self._get_all_from(c, "Movie", "id = {}".format(mid) if mid else "")
-         return [Movie(self, m) for m in movies]
+
+         if not lazy:
+            stars = self._get_lazy_stars(c)
+            tags = self._get_lazy_tags(c)
+            superset_tags = self._get_lazy_superset_tags(c, tags)
+
+         return [
+            Movie(
+               self,
+               m,
+               stars = stars.get(m["id"], []) if not lazy else None,
+               tags = tags.get(m["id"], []) if not lazy else None,
+               superset_tags = superset_tags.get(m["id"], []) if not lazy else None
+            )
+            for m in movies
+         ]
 
    def get_stars_for(self, mid):
       with self._cursor() as c:
@@ -266,13 +323,12 @@ class Database:
 
 #pylint: disable=protected-access
 class Movie:
-   def __init__(self, db, movie_dict):
+   def __init__(self, db, movie_dict, stars=None, tags=None, superset_tags=None):
       self.db = db
       self.mdict = movie_dict
-      self.stars = None
-      self.tags = None
-      self.derived_tags = None
-      self.superset_tags = None
+      self.stars = stars
+      self.tags = tags
+      self.superset_tags = superset_tags
 
    def get_id(self):
       return self.mdict["id"]
@@ -294,22 +350,17 @@ class Movie:
       return bool(self.mdict["starred"])
 
    def get_stars(self):
-      if not self.stars:
+      if self.stars is None:
          self.stars = self.db.get_stars_for(self.get_id())
       return self.stars
 
    def get_tags(self):
-      if not self.tags:
+      if self.tags is None:
          self.tags = self.db.get_tags_for(self.get_id())
       return self.tags
 
-   def get_derived_tags(self):
-      if not self.derived_tags:
-         self.derived_tags = self.db.get_tags_for(self.get_id())
-      return self.derived_tags
-
    def get_superset_tags(self):
-      if not self.superset_tags:
+      if self.superset_tags is None:
          self.superset_tags = self.db.get_superset_tags_for(self.get_id())
       return self.superset_tags
 

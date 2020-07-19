@@ -510,7 +510,7 @@ class SelectorWidget(eeact.FancyListWidget):
       self.sort_names.rotate(-1)
 
    def init(self):
-      self.set_list(self.manager["db"].get_movies())
+      self.set_list(self.manager["db"].get_movies(lazy=False))
       self.sort_next()
       self.goto_first()
 
