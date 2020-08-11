@@ -81,6 +81,8 @@ class Database:
             " where {}".format(cond) if cond else ""
          )
       )
+      # TODO: conn.row_factory = sqlite3.Row
+      # för att slippa att göra om det till en dict själv
       return [{n[0]: v for n,v in zip(cursor.description, r)} for r in res]
 
    def _modify(self, cursor, table, key, values):
