@@ -514,6 +514,12 @@ class SelectorWidget(eeact.FancyListWidget):
       self.sort_next()
       self.goto_first()
 
+   def _play_selected(self):
+      sel = self.get_selected()
+      if not sel:
+         return
+      asyncio.create_task(play(os.path.join(self.manager["ad"], sel.get_path())))
+
    def key_event(self, key):
       if key != eeact.ca.SP and super().key_event(key):
          return True
@@ -533,10 +539,7 @@ class SelectorWidget(eeact.FancyListWidget):
       elif key == ord('s'):
          toggle_starred(self.manager, self.get_selected())
       elif key == ord('l') or key == eeact.curses.KEY_RIGHT:
-         sel = self.get_selected()
-         if not sel:
-            return
-         asyncio.create_task(play(os.path.join(self.manager["ad"], sel.get_path())))
+         self._play_selected()
       elif key == ord('m'):
          asyncio.create_task(modify_selected(self.manager, self.get_selected()))
       elif key == ord('y'):
@@ -548,10 +551,8 @@ class SelectorWidget(eeact.FancyListWidget):
       elif key == ord('f'):
          asyncio.create_task(selector_search(self.manager))
       elif key == ord('r'):
-         vis = self.get_visible()
-         if vis:
-            ra = random.choice(vis)
-            asyncio.create_task(play(os.path.join(self.manager["ad"], ra.get_path())))
+         self.goto_random()
+         self._play_selected()
       else:
          return False
       return True

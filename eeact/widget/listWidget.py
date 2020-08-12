@@ -1,5 +1,6 @@
 import curses
 import curses.ascii as ca
+import random
 from ..StringFormatter import ice
 from .widget import Widget
 
@@ -39,6 +40,9 @@ class ListWidget(Widget):
 
    def goto_last(self):
       self._select(len(self._index_list) - 1)
+
+   def goto_random(self):
+      self._select(random.randrange(len(self._index_list)))
 
    def highlight(self):
       if not self._index_list:
