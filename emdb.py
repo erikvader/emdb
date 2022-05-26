@@ -76,6 +76,16 @@ async def start_inspection(man):
       man.get_widget("MAIN").focus()
       return
 
+   # do not consider videos in dups
+   dups = set()
+   for cur, _, links in os.walk(man["dd"]):
+      for l in links:
+         fullpath = os.path.join(cur, l)
+         if not os.path.islink(fullpath):
+            continue
+         dups.add(os.path.basename(os.readlink(fullpath)))
+   allCandidates = [x for x in allCandidates if x not in dups]
+
    # pick, move and play a random one
    randChoice = random.choice(allCandidates)
    randChoice = move_file(randChoice, man["id"], src_folder=man["bd"])
@@ -706,7 +716,7 @@ def update_stats(man):
 
 # main ########################################################################
 
-def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
+def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir, dupdir):
    l = GlobalBindings(
       "globals",
       eeact.InfoPopup(
@@ -817,6 +827,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir):
    man["bd"] = bufferdir
    man["cd"] = cachedir
    man["td"] = trashdir
+   man["dd"] = dupdir
 
    from contextlib import closing
    with closing(database.Database(dbfile)) as db:
