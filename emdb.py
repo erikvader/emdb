@@ -40,7 +40,7 @@ async def remove_movie(man, sel):
       return
 
    sel.remove_self()
-   move_file(sel.get_path(), man["td"], src_folder=man["ad"])
+   move_file(os.path.join(man["ad"], sel.get_path()), man["td"])
 
    mainWid = man.get_widget("MAIN")
    mainWid.remove_selected()
@@ -57,7 +57,8 @@ async def add_inspection(man, sel):
       man.get_widget("inspectionSelector").focus()
       return
 
-   newName = move_file(sel, man["ad"], src_folder=man["id"])
+   newPath = move_file(os.path.join(man["id"], sel), man["ad"])
+   newName = os.path.basename(newPath)
    stars = [s.get_id() for s in man.get_widget("modifyMovieStars").get_highlighted()]
    tags = [t.get_id() for t in man.get_widget("modifyMovieTags").get_highlighted()]
    newMovie = man["db"].add_movie(newName, "", False, stars, tags)
@@ -69,13 +70,6 @@ async def add_inspection(man, sel):
    insp.focus()
 
 async def start_inspection(man):
-   # check if candidates
-   allCandidates = os.listdir(man["bd"])
-   if not allCandidates:
-      await man.get_widget("infoPopup").show_info("No videos in buffer", severity=eeact.InfoPopup.ERROR)
-      man.get_widget("MAIN").focus()
-      return
-
    # do not consider videos in dups
    dups = set()
    for cur, _, links in os.walk(man["dd"]):
@@ -83,32 +77,45 @@ async def start_inspection(man):
          fullpath = os.path.join(cur, l)
          if not os.path.islink(fullpath):
             continue
-         dups.add(os.path.basename(os.readlink(fullpath)))
-   allCandidates = [x for x in allCandidates if x not in dups]
+         link = os.readlink(fullpath)
+         if os.path.isabs(link):
+            continue
+         dups.add(os.path.normpath(os.path.join(cur, link)))
+
+   # check if candidates
+   allCandidates = [full for buf in man["bd"]
+                         for entry in os.scandir(buf)
+                         for full in (entry.path,)
+                         if full not in dups]
+   if not allCandidates:
+      await man.get_widget("infoPopup").show_info("No videos in buffer", severity=eeact.InfoPopup.ERROR)
+      man.get_widget("MAIN").focus()
+      return
 
    # pick, move and play a random one
    randChoice = random.choice(allCandidates)
-   randChoice = move_file(randChoice, man["id"], src_folder=man["bd"])
+   randChoice = move_file(randChoice, man["id"])
    man.get_widget("infoPopup").show_blocked("waiting for mpv...")
-   await play(os.path.join(man["id"], randChoice))
+   await play(randChoice)
    man.refresh_event.set()
 
    # keep?
    keep = await man.get_widget("infoPopup").show_question("Want to keep?")
    if not keep:
-      move_file(randChoice, man["td"], src_folder=man["id"])
+      move_file(randChoice, man["td"])
       man.get_widget("MAIN").focus()
       return
 
    # choose stars and tags
    fut = man.get_widget("modifyMovieQuery").new_session()
-   man.get_widget("modifyTitle").set_title(randChoice)
+   man.get_widget("modifyTitle").set_title(os.path.basename(randChoice))
    if not await fut:
       man.get_widget("MAIN").focus()
       return
 
    # add to db and stuff
-   newName = move_file(randChoice, man["ad"], src_folder=man["id"])
+   newPath = move_file(randChoice, man["ad"])
+   newName = os.path.basename(newPath)
    stars = [s.get_id() for s in man.get_widget("modifyMovieStars").get_highlighted()]
    tags = [t.get_id() for t in man.get_widget("modifyMovieTags").get_highlighted()]
    newMovie = man["db"].add_movie(newName, "", False, stars, tags)
@@ -595,7 +602,7 @@ class InspectionSelectorWidget(eeact.FancyListWidget):
          sel = self.get_selected()
          if sel:
             self.remove_selected()
-            move_file(sel, self.manager["td"], src_folder=self.manager["id"])
+            move_file(os.path.join(self.manager["id"], sel), self.manager["td"])
       else:
          return False
       return True
@@ -716,7 +723,7 @@ def update_stats(man):
 
 # main ########################################################################
 
-def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir, dupdir):
+def start(dbfile, archivedir, bufferdirs, inspectdir, cachedir, trashdir, dupdir):
    l = GlobalBindings(
       "globals",
       eeact.InfoPopup(
@@ -824,7 +831,7 @@ def start(dbfile, archivedir, bufferdir, inspectdir, cachedir, trashdir, dupdir)
    man.on_any_event(update_stats)
    man["id"] = inspectdir
    man["ad"] = archivedir
-   man["bd"] = bufferdir
+   man["bd"] = bufferdirs
    man["cd"] = cachedir
    man["td"] = trashdir
    man["dd"] = dupdir
