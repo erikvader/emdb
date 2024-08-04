@@ -1,8 +1,3 @@
-"""
-dependencies: backup_move (from my dotfiles)
-optional dependencies: pyperclip
-"""
-
 from . import eeact
 from . import database
 
