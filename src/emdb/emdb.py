@@ -586,7 +586,7 @@ class InspectionSelectorWidget(eeact.FancyListWidget):
 
       if key == eeact.ca.TAB:
          self.manager.get_widget("MAIN").focus()
-      elif key == ord('l'):
+      elif key == ord('l') or key == eeact.curses.KEY_RIGHT:
          sel = self.get_selected()
          if not sel:
             return
